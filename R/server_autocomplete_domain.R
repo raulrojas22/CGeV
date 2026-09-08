@@ -7,6 +7,9 @@ init_autocomplete_domain <- function(
     normalize_annotation_key_fn = NULL
 ) {
     quick_scan_tokens <- new.env(parent = emptyenv(), hash = TRUE)
+    # Derived, session-local keys: never share uploaded annotation names between
+    # sessions. Bound both entry count and bytes, as with the other search caches.
+    normalized_choices_cache <- new.env(parent = emptyenv(), hash = TRUE)
 
     normalize_annotation_key_safe <- function(annotation_path) {
         if (is.function(normalize_annotation_key_fn)) {
@@ -291,17 +294,29 @@ init_autocomplete_domain <- function(
         clean_suggestions
     }
 
-    autocomplete_keys_for_choices <- function(annotation_path, choices) {
+    autocomplete_keys_for_choices <- function(annotation_path, choices, cache_key = NULL) {
         vals <- as.character(choices %||% character(0))
         if (length(vals) == 0L) {
             return(character(0))
         }
-        ac <- tryCatch(load_gff_autocomplete_cache(annotation_path, base_dir = "."), error = function(e) NULL)
-        if (is.list(ac) && length(ac$display) >= length(vals) &&
-            identical(vals, as.character(ac$display[seq_len(length(vals))]))) {
-            return(as.character(ac$keys[seq_len(length(vals))]))
+        ckey <- cache_key %||% gene_autocomplete_cache_key(annotation_path)
+        cached <- cache_env_get(normalized_choices_cache, ckey, default = NULL)
+        # A quick scan can grow or replace choices without changing the source
+        # file. Compare contents and order as well as the file-version key.
+        if (is.list(cached) && identical(cached$choices, vals)) {
+            return(cached$keys)
         }
-        as.character(normalize_partial_gene_query(vals))
+        ac <- tryCatch(load_gff_autocomplete_cache(annotation_path, base_dir = "."), error = function(e) NULL)
+        keys <- if (is.list(ac) && length(ac$display) >= length(vals) &&
+            length(ac$keys) >= length(vals) && !any(grepl("%", vals, fixed = TRUE)) &&
+            identical(vals, as.character(ac$display[seq_len(length(vals))]))) {
+            as.character(ac$keys[seq_len(length(vals))])
+        } else {
+            as.character(normalize_partial_gene_choices(vals))
+        }
+        cache_env_set(normalized_choices_cache, ckey, list(choices = vals, keys = keys),
+                      max_size = 24L, max_bytes = 8 * 1024^2)
+        keys
     }
 
     aggregate_shared_gene_suggestions <- function(suggestions_by_path, keys_by_path = NULL, min_shared_organisms = 1L, max_total = 20000L) {
@@ -329,7 +344,7 @@ init_autocomplete_domain <- function(
             keys <- if (length(supplied_keys) == length(vals)) {
                 supplied_keys
             } else if (exists("normalize_partial_gene_query", mode = "function")) {
-                vapply(vals, normalize_partial_gene_query, character(1))
+                normalize_partial_gene_choices(vals)
             } else if (exists("normalize_gene_compact", mode = "function")) {
                 tolower(vapply(vals, normalize_gene_compact, character(1)))
             } else {

@@ -4500,7 +4500,7 @@ function(input, output, session) {
                 choices <- if (nzchar(key)) as.character(cache_map[[key]] %||% character(0)) else character(0)
                 choices <- trimws(choices)
                 choices <- choices[!is.na(choices) & nzchar(choices)]
-                if (length(choices) > 0L && any(vapply(choices, normalize_partial_gene_query, character(1)) == q_norm)) {
+                if (length(choices) > 0L && any(autocomplete_keys_for_choices(p, choices, cache_key = key) == q_norm)) {
                     found_count <- found_count + 1L
                     matched_paths <- c(matched_paths, p)
                     if (found_count >= min_count) return(found_count)
@@ -4673,7 +4673,9 @@ function(input, output, session) {
             if (length(choices) == 0L) {
                 return(NULL)
             }
-            comp <- vapply(choices, normalize_partial_gene_query, character(1))
+            comp <- stats::setNames(
+                autocomplete_keys_for_choices(paths[[i]], choices, cache_key = key), choices
+            )
             hit_prefix <- startsWith(comp, q_comp)
             hit_contains <- !hit_prefix & grepl(q_comp, comp, fixed = TRUE)
             hit <- hit_prefix | hit_contains
@@ -4739,7 +4741,7 @@ function(input, output, session) {
                 choices <- if (nzchar(key)) as.character(cache_map[[key]] %||% character(0)) else character(0)
                 choices <- trimws(choices)
                 choices <- choices[!is.na(choices) & nzchar(choices)]
-                if (length(choices) > 0L && any(vapply(choices, normalize_partial_gene_query, character(1)) == q_norm)) {
+                if (length(choices) > 0L && any(autocomplete_keys_for_choices(p, choices, cache_key = key) == q_norm)) {
                     return(TRUE)
                 }
             }
@@ -5422,6 +5424,7 @@ function(input, output, session) {
     trim_autocomplete_cache_map <- autocompleteDomain$trim_autocomplete_cache_map
     extract_autocomplete_name_lists <- autocompleteDomain$extract_autocomplete_name_lists
     sanitize_autocomplete_choices <- autocompleteDomain$sanitize_autocomplete_choices
+    autocomplete_keys_for_choices <- autocompleteDomain$autocomplete_keys_for_choices
     get_gene_suggestions_for_annotation <- autocompleteDomain$get_gene_suggestions_for_annotation
     get_gene_suggestions_from_disk_index <- autocompleteDomain$get_gene_suggestions_from_disk_index
     get_cached_quick_gene_suggestions <- autocompleteDomain$get_cached_quick_gene_suggestions

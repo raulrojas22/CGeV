@@ -3657,6 +3657,20 @@ normalize_partial_gene_query <- function(x) {
     trimws(comp)
 }
 
+# Vectorize the ordinary names while retaining scalar URL-decoding semantics:
+# a malformed escape in one name must not change the other names in the batch.
+# Keep vapply's names, since some suggestion tables inherit them as row names.
+normalize_partial_gene_choices <- function(choices) {
+    vals <- as.character(choices)
+    keys <- rep(NA_character_, length(vals))
+    escaped <- !is.na(vals) & grepl("%", vals, fixed = TRUE)
+    keys[!escaped] <- normalize_partial_gene_query(vals[!escaped])
+    if (any(escaped)) {
+        keys[escaped] <- vapply(vals[escaped], normalize_partial_gene_query, character(1))
+    }
+    stats::setNames(keys, names(choices) %||% vals)
+}
+
 alias_sqlite_prefix_upper_bound <- function(prefix) {
     prefix <- as.character(prefix %||% "")
     if (length(prefix) == 0L || is.na(prefix[[1L]])) return("")
@@ -4062,7 +4076,7 @@ find_partial_gene_suggestions_from_choices <- function(choices, query, file_labe
     if (length(display) == 0L) {
         return(empty_partial_gene_suggestions_df())
     }
-    comp <- vapply(display, normalize_partial_gene_query, character(1))
+    comp <- normalize_partial_gene_choices(display)
     exact_hit <- comp == q_comp
     hit_prefix <- !exact_hit & startsWith(comp, q_comp)
     hit_contains <- !exact_hit & !hit_prefix & grepl(q_comp, comp, fixed = TRUE)
@@ -4464,7 +4478,7 @@ find_partial_gene_suggestions_streaming <- function(file_path, query, file_label
         display <- display[!is.na(display) & nzchar(display) & nchar(display) <= 80]
         if (length(display) == 0L) next
 
-        comp <- vapply(display, normalize_partial_gene_query, character(1))
+        comp <- normalize_partial_gene_choices(display)
         hit_prefix <- startsWith(comp, q_comp)
         hit_contains <- !hit_prefix & grepl(q_comp, comp, fixed = TRUE)
         hit <- hit_prefix | hit_contains
@@ -4575,7 +4589,7 @@ find_partial_gene_suggestions_grep <- function(file_path, query, file_label = NU
             stringsAsFactors = FALSE
         ))
     }
-    comp <- vapply(display, normalize_partial_gene_query, character(1))
+    comp <- normalize_partial_gene_choices(display)
     hit_prefix <- startsWith(comp, q_comp)
     hit_contains <- !hit_prefix & grepl(q_comp, comp, fixed = TRUE)
     hit <- hit_prefix | hit_contains
@@ -4721,7 +4735,7 @@ find_partial_gene_suggestions_in_file <- function(file_path, query, file_label =
     }
 
     display <- display[keep]
-    comp <- vapply(display, normalize_partial_gene_query, character(1))
+    comp <- normalize_partial_gene_choices(display)
     hit_prefix <- startsWith(comp, q_comp)
     hit_contains <- !hit_prefix & grepl(q_comp, comp, fixed = TRUE)
     hit <- hit_prefix | hit_contains
