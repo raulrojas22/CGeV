@@ -890,8 +890,12 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
         valid <- rel_start >= 1L & rel_end <= seq_len_total
         result <- rep(NA_real_, length(starts))
         if (any(valid)) {
-            seqs <- substring(full_transcript_seq, rel_start[valid], rel_end[valid])
-            result[valid] <- calc_gc_pct_batch(seqs)
+            if (!is.null(gc_index)) {
+                result[valid] <- gc_percent_from_index(gc_index, rel_start[valid], rel_end[valid])
+            } else {
+                seqs <- substring(full_transcript_seq, rel_start[valid], rel_end[valid])
+                result[valid] <- calc_gc_pct_batch(seqs)
+            }
         }
         result
     }
@@ -911,6 +915,10 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
       }
     }
     app_perf_mark(plot_perf, sprintf("gc source ready len=%d", as.integer(nchar(full_transcript_seq %||% ""))), plot_perf_context)
+    gc_index <- make_genomic_gc_index(full_transcript_seq)
+    # ggplot objects can retain this call environment; do not retain the prefix
+    # arrays after the tooltip values have been materialized in the widget.
+    on.exit({ gc_index <- NULL }, add = TRUE)
 
     get_feature_gc_pct <- function(seqid, start_pos, end_pos) {
       if (!nzchar(full_transcript_seq)) return(NA_real_)
@@ -924,6 +932,7 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
       
       # Validación para evitar errores si el exón sale del margen extraído
       if (rel_start < 1 || rel_end > nchar(full_transcript_seq)) return(NA_real_)
+      if (!is.null(gc_index)) return(gc_percent_from_index(gc_index, rel_start, rel_end))
       
       seq_txt <- substr(full_transcript_seq, rel_start, rel_end)
       calc_gc_pct(seq_txt)
@@ -3342,13 +3351,9 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                 df_gene <- processed_cache$df_gene
                 df_transcript <- processed_cache$df_transcript
 
-                composicion_secuencia <- "Sequence Composition: N/A (genome FASTA not available)"
-                sequence_composition_t0 <- app_perf_now()
-                if (!is.null(info) && !is.null(info$sequence) && nzchar(info$sequence)) {
-                    seq_info <- calculate_sequence_composition(info$sequence)
-                    composicion_secuencia <- seq_info$composition
-                }
-                app_perf_mark_ms(module_perf, "sequence_composition_ms", app_perf_elapsed_ms(sequence_composition_t0), "HOMO_MOD")
+                # The legacy plot argument is unused; footer composition already
+                # comes from the prepared sequence data.
+                composicion_secuencia <- NULL
 
                 transcript_start <- suppressWarnings(min(df$xstart, na.rm = TRUE))
                 transcript_end <- suppressWarnings(max(df$xend, na.rm = TRUE))
@@ -4176,13 +4181,9 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                 df_gene <- processed_cache$df_gene
                 df_transcript <- processed_cache$df_transcript
 
-                composicion_secuencia <- "Sequence Composition: N/A (genome FASTA not available)"
-                sequence_composition_t0 <- app_perf_now()
-                if (!is.null(info) && !is.null(info$sequence) && nzchar(info$sequence)) {
-                    seq_info <- calculate_sequence_composition(info$sequence)
-                    composicion_secuencia <- seq_info$composition
-                }
-                app_perf_mark_ms(module_perf, "sequence_composition_ms", app_perf_elapsed_ms(sequence_composition_t0), "ORTHO_MOD")
+                # Kept for signature compatibility; create_gene_plot does not
+                # consume this argument. The footer uses prepared composition.
+                composicion_secuencia <- NULL
 
                 transcript_start <- suppressWarnings(min(df$xstart, na.rm = TRUE))
                 transcript_end <- suppressWarnings(max(df$xend, na.rm = TRUE))

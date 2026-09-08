@@ -338,6 +338,35 @@ app_perf_mark_ms <- function(run = NULL, key = "", elapsed_ms = NA_real_, contex
 
 # --- 1. ANÁLISIS DE SECUENCIAS ---
 
+# The caller owns case/whitespace normalization and the percentage denominator.
+count_sequence_bases <- function(sequence) {
+    if (is.na(sequence)) return(stats::setNames(rep(NA_integer_, 4L), c("A", "T", "C", "G")))
+    counts <- tabulate(as.integer(charToRaw(sequence)), nbins = 255L)
+    stats::setNames(counts[c(65L, 84L, 67L, 71L)], c("A", "T", "C", "G"))
+}
+
+# Character coordinates equal byte coordinates only for ASCII sequences. Keep
+# larger/non-ASCII spans on the existing substring path to bound working memory.
+make_genomic_gc_index <- function(sequence, max_bases = 2000000L) {
+    n <- nchar(sequence, type = "bytes")
+    if (n == 0L || n > max_bases || n != nchar(sequence, type = "chars")) return(NULL)
+    bytes <- as.integer(charToRaw(sequence))
+    known <- bytes %in% c(65L, 84L, 67L, 71L, 97L, 116L, 99L, 103L)
+    gc <- bytes %in% c(67L, 71L, 99L, 103L)
+    list(length = n, known = c(0L, cumsum(known)), gc = c(0L, cumsum(gc)))
+}
+
+gc_percent_from_index <- function(index, starts, ends) {
+    starts <- as.integer(starts)
+    ends <- as.integer(ends)
+    out <- rep(NA_real_, length(starts))
+    valid <- !is.na(starts) & !is.na(ends) & starts >= 1L & ends >= starts & ends <= index$length
+    known <- index$known[ends[valid] + 1L] - index$known[starts[valid]]
+    gc <- index$gc[ends[valid] + 1L] - index$gc[starts[valid]]
+    out[valid] <- ifelse(known > 0L, round(100 * gc / known, 2), NA_real_)
+    out
+}
+
 calculate_sequence_composition <- function(gen_sequence) {
     if (is.null(gen_sequence) || length(gen_sequence) == 0 || is.na(gen_sequence) || gen_sequence == "") {
         return(list(composition = "Sequence Composition: N/A (Sequence empty)", length = 0))
@@ -348,11 +377,11 @@ calculate_sequence_composition <- function(gen_sequence) {
         return(list(composition = "Sequence Composition: N/A (Sequence empty)", length = 0))
     }
 
-    raw_seq <- charToRaw(gen_sequence)
-    conteo_A <- sum(raw_seq == charToRaw("A"))
-    conteo_T <- sum(raw_seq == charToRaw("T"))
-    conteo_C <- sum(raw_seq == charToRaw("C"))
-    conteo_G <- sum(raw_seq == charToRaw("G"))
+    counts <- count_sequence_bases(gen_sequence)
+    conteo_A <- counts[["A"]]
+    conteo_T <- counts[["T"]]
+    conteo_C <- counts[["C"]]
+    conteo_G <- counts[["G"]]
 
     list(
         composition = sprintf(
@@ -8091,23 +8120,20 @@ get_transcript_composition_cache_key <- function(genome_path, seqid, exon_ranges
     paste(gp, fi_sig, as.character(seqid %||% ""), toupper(trimws(as.character(strand %||% "+"))), exon_sig, sep = "||")
 }
 
-get_transcript_composition_cached <- function(genome_path, seqid, exon_ranges, strand = "+") {
+get_transcript_composition_cached <- function(genome_path, seqid, exon_ranges, strand = "+", spliced_sequence = NULL) {
     key <- get_transcript_composition_cache_key(genome_path, seqid, exon_ranges, strand = strand)
     cached <- cache_env_get(.transcript_composition_cache, key, default = NULL)
     if (!is.null(cached) && is.list(cached) && nzchar(as.character(cached$composition %||% ""))) {
         return(cached)
     }
 
-    seq_txt <- extract_spliced_exon_sequence(genome_path, seqid, exon_ranges, strand = strand)
+    # fetch_gene_data_sync has already extracted this exact transcript. Other
+    # callers continue to resolve it here. An empty supplied transcript must not
+    # be replaced by the genomic fallback sequence (its semantics differ).
+    seq_txt <- spliced_sequence
+    if (is.null(seq_txt)) seq_txt <- extract_spliced_exon_sequence(genome_path, seqid, exon_ranges, strand = strand)
     seq_clean <- toupper(gsub("\\s+", "", as.character(seq_txt %||% "")))
-    counts <- c(
-        A = nchar(gsub("[^A]", "", seq_clean)),
-        T = nchar(gsub("[^T]", "", seq_clean)),
-        C = nchar(gsub("[^C]", "", seq_clean)),
-        G = nchar(gsub("[^G]", "", seq_clean))
-    )
-    counts <- as.integer(counts)
-    names(counts) <- c("A", "T", "C", "G")
+    counts <- count_sequence_bases(seq_clean)
     known_total <- sum(counts, na.rm = TRUE)
     out <- list(
         composition = format_sequence_composition_from_counts(counts, denominator = known_total),
@@ -9923,6 +9949,7 @@ fetch_gene_data_sync <- function(chr_name, gene_coords, fasta_path = NULL, fasta
             end_pos <- suppressWarnings(as.numeric(gene_coords$end %||% NA_real_))
             spliced_fetch_t0 <- app_perf_now()
             seq_str <- extract_spliced_exon_sequence(fasta_path, chr_name, exon_ranges = exon_ranges, strand = strand)
+            spliced_sequence <- seq_str
             app_perf_mark_ms(fetch_perf, "spliced_sequence_ms", app_perf_elapsed_ms(spliced_fetch_t0), "SEQ")
             app_perf_mark(fetch_perf, sprintf("after spliced len=%d", as.integer(nchar(seq_str %||% ""))), "SEQ")
             if (!nzchar(seq_str) && is.finite(start_pos) && is.finite(end_pos)) {
@@ -9934,21 +9961,15 @@ fetch_gene_data_sync <- function(chr_name, gene_coords, fasta_path = NULL, fasta
             if (!is.null(fasta_path) && nzchar(as.character(fasta_path %||% "")) && file.exists(fasta_path) &&
                 !is.null(exon_ranges) && nrow(normalize_exon_ranges(exon_ranges)) > 0L) {
                 comp_info <- tryCatch(
-                    get_transcript_composition_cached(fasta_path, chr_name, exon_ranges, strand = strand),
+                    get_transcript_composition_cached(fasta_path, chr_name, exon_ranges, strand = strand,
+                                                     spliced_sequence = spliced_sequence),
                     error = function(e) NULL
                 )
             }
             if (is.null(comp_info) && nzchar(seq_str)) {
                 comp_calc <- calculate_sequence_composition(seq_str)
                 raw_seq <- toupper(gsub("\\s+", "", as.character(seq_str %||% "")))
-                counts <- c(
-                    A = nchar(gsub("[^A]", "", raw_seq)),
-                    T = nchar(gsub("[^T]", "", raw_seq)),
-                    C = nchar(gsub("[^C]", "", raw_seq)),
-                    G = nchar(gsub("[^G]", "", raw_seq))
-                )
-                counts <- as.integer(counts)
-                names(counts) <- c("A", "T", "C", "G")
+                counts <- count_sequence_bases(raw_seq)
                 comp_info <- list(
                     composition = comp_calc$composition,
                     length = comp_calc$length,

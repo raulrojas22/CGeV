@@ -135,3 +135,35 @@ if (extract_calls != 1L) {
 }
 
 cat("plot-compact-gc-present-ok\n")
+
+# Compare the actual SVG and tooltip payload against the original substring GC
+# path. Duplicate/overlapping exon and CDS ranges exercise reuse in both views.
+df_compare <- df[c(1, 2, 1, 2), ]
+df_compare$xstart <- c(110, 115, 160, 163)
+df_compare$xend <- c(130, 128, 180, 175)
+df_compare$largo <- df_compare$xend - df_compare$xstart + 1
+original_index <- get("make_genomic_gc_index", envir = app_env)
+normalize_svg <- function(widget) {
+    svg <- widget$x$html
+    stopifnot(is.character(svg), length(svg) == 1L, nzchar(svg))
+    gsub("svg_[[:alnum:]]+", "svg_TEST", svg)
+}
+for (mode in c("compact", "detailed")) {
+    for (sequence in c(paste(rep("ACgtNN-- \n", 30), collapse = ""), paste(rep("NRY-", 75), collapse = ""))) {
+        render_comparison <- function() create_gene_plot(
+            df = df_compare, df_gene = df_gene, df_transcript = df_tx,
+            current_transcript_length = 101, length_difference = 0,
+            composicion_secuencia = stop("The legacy composition argument must remain unused"),
+            gene_length_label = "Gene Length: 101 pb", transcript_length_label = "Transcript Length: 101 pb",
+            visual_mode = mode, genome_fasta_path = tmp_fasta,
+            precomputed_genomic_span = sequence, plot_id = "gc_parity", plot_context = "test"
+        )
+        for (env in patch_envs) assign("make_genomic_gc_index", original_index, envir = env)
+        candidate <- normalize_svg(render_comparison())
+        for (env in patch_envs) assign("make_genomic_gc_index", function(...) NULL, envir = env)
+        reference <- normalize_svg(render_comparison())
+        stopifnot(identical(candidate, reference))
+    }
+}
+for (env in patch_envs) assign("make_genomic_gc_index", original_index, envir = env)
+cat("plot-gc-svg-tooltip-parity-ok compact+detailed overlapping+ambiguous\n")
