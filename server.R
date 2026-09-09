@@ -21338,7 +21338,9 @@ function(input, output, session) {
                 )
                 footer_key <- paste0(footer_key, "::expanded=", as.character(isoform_expanded_footer_h))
                 if (!is.null(last_footer_ui) && identical(footer_key, last_footer_key)) {
-                    return(last_footer_ui)
+                    # Other genes update the shared maps. Keep this card's DOM,
+                    # focus and controls when its own information is unchanged.
+                    shiny::req(FALSE, cancelOutput = TRUE)
                 }
                 # Gene synonyms from GFF attributes
                 gene_syns_h <- character(0)
@@ -23962,7 +23964,9 @@ function(input, output, session) {
                 )
                 footer_key <- paste0(footer_key, "::expanded=", as.character(isoform_expanded_footer_o))
                 if (!is.null(last_footer_ui) && identical(footer_key, last_footer_key)) {
-                    return(last_footer_ui)
+                    # Other genes update the shared maps. Keep this card's DOM,
+                    # focus and controls when its own information is unchanged.
+                    shiny::req(FALSE, cancelOutput = TRUE)
                 }
                 gene_syns_o <- character(0)
                 if (!is.null(plot_data) && nrow(plot_data) > 0) {
