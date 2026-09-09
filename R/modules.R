@@ -663,7 +663,24 @@ extract_composition_percentages <- function(composition_label) {
 
 .cgv_gene_plot_model_cache <- new.env(parent = emptyenv())
 .cgv_gene_plot_model_cache_order <- character(0)
-.cgv_gene_plot_model_version <- "v1"
+.cgv_gene_plot_model_version <- "v2"
+
+make_gene_plot_model_data_key <- function(df, df_gene, df_transcript = NULL) {
+    # Computed once per module from the actual immutable annotation data.
+    # Gene names/spans alone cannot distinguish edited features or annotations.
+    digest::digest(list(df, df_gene, df_transcript), algo = "sha256")
+}
+
+make_gene_plot_model_cache_key <- function(data_key, visual_mode = "compact",
+                                            compact_feature_interactivity = TRUE,
+                                            overlap_tol_bp = 2) {
+    data_key <- trimws(as.character(data_key %||% ""))
+    if (!nzchar(data_key)) return("")
+    visual_mode <- match.arg(visual_mode, c("compact", "detailed"))
+    paste(.cgv_gene_plot_model_version, data_key, visual_mode,
+          identical(visual_mode, "compact") && isTRUE(compact_feature_interactivity),
+          overlap_tol_bp, sep = "|")
+}
 
 get_gene_plot_model_cache_max_entries <- function() {
     raw <- suppressWarnings(as.integer(Sys.getenv("APP_GENE_PLOT_MODEL_CACHE_MAX_ENTRIES", "48")))
@@ -803,10 +820,9 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
     model_t0 <- app_perf_now()
     is_compact_mode <- identical(visual_mode, "compact")
     compact_feature_interactivity <- !is_compact_mode || is_compact_feature_interactivity_enabled()
-    prepared_model_key <- trimws(as.character(model_cache_key %||% ""))
-    if (nzchar(prepared_model_key)) {
-        prepared_model_key <- paste(.cgv_gene_plot_model_version, prepared_model_key, sep = "|")
-    }
+    prepared_model_key <- make_gene_plot_model_cache_key(
+        model_cache_key, visual_mode, compact_feature_interactivity, overlap_tol_bp = 2
+    )
     prepared_model <- get_gene_plot_model_cache(prepared_model_key)
     model_cache_hit <- !is.null(prepared_model)
     if (!model_cache_hit) {
@@ -2756,6 +2772,9 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
             # OPT-4: Process data ONCE at module init (data is a static data.frame)
             module_init_t0 <- app_perf_now()
             processed_cache <- process_gene_data(data)
+            model_data_key <- make_gene_plot_model_data_key(
+                processed_cache$df, processed_cache$df_gene, processed_cache$df_transcript
+            )
 
             # Reactive value to store gene info
             gene_info <- reactiveVal(NULL)
@@ -3468,7 +3487,7 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     is_colorblind_mode = is_colorblind_mode,
                     gene_display_name = gene_name,
                     precomputed_genomic_span = span_for_plot,
-                    model_cache_key = cache_key,
+                    model_cache_key = model_data_key,
                     orientation_mode = this_orientation_mode,
                     caller_started_at = create_t0
                 )
@@ -3546,6 +3565,9 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
             # OPT-4: Process data ONCE at module init (data is a static data.frame)
             module_init_t0 <- app_perf_now()
             processed_cache <- process_gene_data(data)
+            model_data_key <- make_gene_plot_model_data_key(
+                processed_cache$df, processed_cache$df_gene, processed_cache$df_transcript
+            )
 
             gene_info <- reactiveVal(NULL)
             genomic_span_seq <- reactiveVal("")
@@ -4305,7 +4327,7 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     is_colorblind_mode = is_colorblind_mode,
                     gene_display_name = gene_name,
                     precomputed_genomic_span = span_for_plot,
-                    model_cache_key = cache_key,
+                    model_cache_key = model_data_key,
                     orientation_mode = this_orientation_mode,
                     caller_started_at = create_t0
                 )
