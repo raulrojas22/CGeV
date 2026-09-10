@@ -1788,10 +1788,14 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
         plot_ymax <- max(1.145, ruler_label_y + 0.020)
     }
 
+    # The genomic ruler is drawn by explicit layers; ggplot's axes/grid are hidden.
+    # All position layers use identity stats/positions and automatically trained
+    # scale ranges. Keep their coordinates instead of repeatedly censoring them;
+    # the displayed window remains controlled by coord_cartesian below.
     gene_x_scale <- if (isTRUE(reverse_gene_axis)) {
-        scale_x_reverse(expand = expansion(mult = 0, add = 0))
+        scale_x_reverse(expand = expansion(mult = 0, add = 0), breaks = NULL, oob = scales::oob_keep)
     } else {
-        scale_x_continuous(expand = expansion(mult = 0, add = 0))
+        scale_x_continuous(expand = expansion(mult = 0, add = 0), breaks = NULL, oob = scales::oob_keep)
     }
 
     gg_lines <- ggplot() +
@@ -1960,7 +1964,7 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
             vjust = 0.5
         ) +
         gene_x_scale +
-        scale_y_continuous(expand = expansion(mult = 0, add = 0)) +
+        scale_y_continuous(expand = expansion(mult = 0, add = 0), breaks = NULL, oob = scales::oob_keep) +
         coord_cartesian(
           xlim = c(plot_left, plot_right),
           ylim = c(plot_ymin, plot_ymax),
