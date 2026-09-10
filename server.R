@@ -62,17 +62,17 @@ function(input, output, session) {
         list(
             plotCounter         = reactiveVal(0),
             activePlotIds       = reactiveVal(integer()),
-            titles              = reactiveVal(list()),
+            titles              = make_keyed_reactive_map(),
             existingPlots       = reactiveVal(list()),
-            fileData            = reactiveVal(list()),
+            fileData            = make_keyed_reactive_map(),
             chrNames            = reactiveVal(list()),
-            genSequences        = reactiveVal(list()),
-            plotSignatures      = reactiveVal(list()),
+            genSequences        = make_keyed_reactive_map(),
+            plotSignatures      = make_keyed_reactive_map(),
             annotationPaths     = reactiveVal(list()),
-            genomePaths         = reactiveVal(list()),
-            organismInfo        = reactiveVal(list()),
-            plotMetrics         = reactiveVal(list()),
-            plotGeneMeta        = reactiveVal(list()),
+            genomePaths         = make_keyed_reactive_map(),
+            organismInfo        = make_keyed_reactive_map(),
+            plotMetrics         = make_keyed_reactive_map(),
+            plotGeneMeta        = make_keyed_reactive_map(),
             closeObserversBound = reactiveVal(character())
         )
     }
@@ -932,10 +932,9 @@ function(input, output, session) {
         }
         base_pid <- sub("_c$", "", pid)
         acc <- get_metrics_accessors(context)
-        metrics_map <- tryCatch(acc$metrics(), error = function(e) list())
-        payload <- tryCatch(metrics_map[[pid]], error = function(e) NULL)
+        payload <- tryCatch(read_reactive_map_key(acc$metrics, pid), error = function(e) NULL)
         if (is.null(payload) && !identical(base_pid, pid)) {
-            payload <- tryCatch(metrics_map[[base_pid]], error = function(e) NULL)
+            payload <- tryCatch(read_reactive_map_key(acc$metrics, base_pid), error = function(e) NULL)
         }
         if (!is.null(payload)) {
             return(payload)
@@ -21298,15 +21297,15 @@ function(input, output, session) {
             last_footer_ui <- NULL
             output[[output_id]] <- renderUI({
                 footer_render_t0_h <- app_perf_now()
-                plot_data <- tryCatch(fileDataHomologous()[[id_local]], error = function(e) NULL)
-                seq_blob <- tryCatch(genSequencesHomologous()[[id_local]], error = function(e) NULL)
+                plot_data <- tryCatch(read_reactive_map_key(fileDataHomologous, id_local), error = function(e) NULL)
+                seq_blob <- tryCatch(read_reactive_map_key(genSequencesHomologous, id_local), error = function(e) NULL)
                 metrics_payload <- tryCatch(get_plot_metrics_payload(id_local, "homo"), error = function(e) NULL)
                 # Papers button data: gene label, organism, synonyms, aliases
-                titulo_h <- tryCatch(titlesHomologous()[[id_local]], error = function(e) "")
-                org_info_h <- tryCatch(organismInfoHomologous()[[id_local]], error = function(e) NULL)
+                titulo_h <- tryCatch(read_reactive_map_key(titlesHomologous, id_local), error = function(e) "")
+                org_info_h <- tryCatch(read_reactive_map_key(organismInfoHomologous, id_local), error = function(e) NULL)
                 gene_label_h <- trimws(as.character(extract_title_field(titulo_h, "Gene") %||% ""))
                 org_name_h <- as.character(org_info_h$name %||% "")
-                gene_meta_footer_h <- tryCatch(plotGeneMetaHomologous()[[id_local]], error = function(e) NULL)
+                gene_meta_footer_h <- tryCatch(read_reactive_map_key(plotGeneMetaHomologous, id_local), error = function(e) NULL)
                 shiny::req(!is.null(gene_meta_footer_h))   # wait until meta is populated
                 is_canonical_footer_h      <- isTRUE(gene_meta_footer_h$is_canonical)
                 is_canonical_copy_footer_h <- isTRUE(gene_meta_footer_h$is_canonical_copy)
@@ -21323,8 +21322,8 @@ function(input, output, session) {
                 } else {
                     FALSE
                 }
-                genome_path_footer_h <- tryCatch(genomePathsHomologous()[[id_local]], error = function(e) NULL)
-                plot_sig_footer_h <- tryCatch(plotSignaturesHomologous()[[id_local]], error = function(e) "")
+                genome_path_footer_h <- tryCatch(read_reactive_map_key(genomePathsHomologous, id_local), error = function(e) NULL)
+                plot_sig_footer_h <- tryCatch(read_reactive_map_key(plotSignaturesHomologous, id_local), error = function(e) "")
                 footer_key <- build_footer_cache_key(
                     id_local = id_local,
                     context = "homo",
@@ -21385,10 +21384,10 @@ function(input, output, session) {
                             gene_end    = gene_meta_footer_h$gene_end_bp,
                             strand      = as.character(gene_meta_footer_h$strand %||% "+")
                         ),
-                        error = function(e) tryCatch(genSequencesHomologous()[[id_local]], error = function(e2) NULL)
+                        error = function(e) tryCatch(read_reactive_map_key(genSequencesHomologous, id_local), error = function(e2) NULL)
                     )
                 } else {
-                    tryCatch(genSequencesHomologous()[[id_local]], error = function(e) NULL)
+                    tryCatch(read_reactive_map_key(genSequencesHomologous, id_local), error = function(e) NULL)
                 }
                 footer_ui <- build_footer_content_ui(
                     plot_data = plot_data,
@@ -23924,15 +23923,15 @@ function(input, output, session) {
             last_footer_key <- NULL
             last_footer_ui <- NULL
             output[[output_id]] <- renderUI({
-                plot_data <- tryCatch(fileDataOrthologous()[[id_local]], error = function(e) NULL)
-                seq_blob <- tryCatch(genSequencesOrthologous()[[id_local]], error = function(e) NULL)
+                plot_data <- tryCatch(read_reactive_map_key(fileDataOrthologous, id_local), error = function(e) NULL)
+                seq_blob <- tryCatch(read_reactive_map_key(genSequencesOrthologous, id_local), error = function(e) NULL)
                 metrics_payload <- tryCatch(get_plot_metrics_payload(id_local, "ortho"), error = function(e) NULL)
                 # Papers button data: gene label, organism, synonyms, aliases
-                titulo_o <- tryCatch(titlesOrthologous()[[id_local]], error = function(e) "")
-                org_info_o <- tryCatch(organismInfoOrthologous()[[id_local]], error = function(e) NULL)
+                titulo_o <- tryCatch(read_reactive_map_key(titlesOrthologous, id_local), error = function(e) "")
+                org_info_o <- tryCatch(read_reactive_map_key(organismInfoOrthologous, id_local), error = function(e) NULL)
                 gene_label_o <- trimws(as.character(extract_title_field(titulo_o, "Gene") %||% ""))
                 org_name_o <- as.character(org_info_o$name %||% "")
-                gene_meta_footer_o <- tryCatch(plotGeneMetaOrthologous()[[id_local]], error = function(e) NULL)
+                gene_meta_footer_o <- tryCatch(read_reactive_map_key(plotGeneMetaOrthologous, id_local), error = function(e) NULL)
                 shiny::req(!is.null(gene_meta_footer_o))   # wait until meta is populated
                 is_canonical_footer_o      <- isTRUE(gene_meta_footer_o$is_canonical)
                 is_canonical_copy_footer_o <- isTRUE(gene_meta_footer_o$is_canonical_copy)
@@ -23949,8 +23948,8 @@ function(input, output, session) {
                 } else {
                     FALSE
                 }
-                genome_path_footer_o <- tryCatch(genomePathsOrthologous()[[id_local]], error = function(e) NULL)
-                plot_sig_footer_o <- tryCatch(plotSignaturesOrthologous()[[id_local]], error = function(e) "")
+                genome_path_footer_o <- tryCatch(read_reactive_map_key(genomePathsOrthologous, id_local), error = function(e) NULL)
+                plot_sig_footer_o <- tryCatch(read_reactive_map_key(plotSignaturesOrthologous, id_local), error = function(e) "")
                 footer_key <- build_footer_cache_key(
                     id_local = id_local,
                     context = "ortho",
@@ -24009,10 +24008,10 @@ function(input, output, session) {
                             gene_end    = gene_meta_footer_o$gene_end_bp,
                             strand      = as.character(gene_meta_footer_o$strand %||% "+")
                         ),
-                        error = function(e) tryCatch(genSequencesOrthologous()[[id_local]], error = function(e2) NULL)
+                        error = function(e) tryCatch(read_reactive_map_key(genSequencesOrthologous, id_local), error = function(e2) NULL)
                     )
                 } else {
-                    seq_existing_o <- tryCatch(genSequencesOrthologous()[[id_local]], error = function(e) NULL)
+                    seq_existing_o <- tryCatch(read_reactive_map_key(genSequencesOrthologous, id_local), error = function(e) NULL)
                     if (!isTRUE(defer_footer_sequence_o) &&
                         (!nzchar(trimws(as.character(seq_existing_o %||% ""))) ||
                             (exists("is_sequence_composition_blob", mode = "function") && isTRUE(is_sequence_composition_blob(seq_existing_o)))) &&

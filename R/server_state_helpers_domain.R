@@ -1,3 +1,34 @@
+# Preserve the existing whole-map getter/setter while allowing a card to subscribe
+# to one entry. Updates are synchronous, so no extra observer or flush is needed.
+make_keyed_reactive_map <- function(value = list()) {
+    whole <- shiny::reactiveVal(value)
+    entries <- new.env(parent = emptyenv())
+    entry_value <- function(value, key) {
+        tryCatch(value[[key]], error = function(e) NULL)
+    }
+    accessor <- function(x) {
+        if (missing(x)) return(whole())
+        result <- whole(x)
+        for (key in ls(entries, all.names = TRUE)) {
+            entries[[key]](entry_value(x, key))
+        }
+        invisible(result)
+    }
+    attr(accessor, "read_key") <- function(key) {
+        stopifnot(is.character(key), length(key) == 1L, !is.na(key), nzchar(key))
+        if (!exists(key, envir = entries, inherits = FALSE)) {
+            entries[[key]] <- shiny::reactiveVal(entry_value(shiny::isolate(whole()), key))
+        }
+        entries[[key]]()
+    }
+    accessor
+}
+
+read_reactive_map_key <- function(map, key) {
+    read_key <- attr(map, "read_key", exact = TRUE)
+    if (is.function(read_key)) read_key(key) else map()[[key]]
+}
+
 init_server_state_helpers_domain <- function(
     autocompleteBuildEpochs_rv,
     searchRunState_rv
