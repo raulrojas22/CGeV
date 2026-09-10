@@ -367,36 +367,37 @@ options(shiny.maxRequestSize = 500 * 1024^2)
 # Creamos un entorno limpio que hereda del entorno de paquetes (search path).
 # Esto permite que las funciones vean las librerías cargadas, pero NO vean
 # los datos pesados del GlobalEnv de la app.
+sys.source("R/compiled_runtime.R", envir = environment())
 lib_env <- new.env(parent = parent.env(.GlobalEnv))
 
 # Cargamos los scripts DENTRO de este entorno limpio usando sys.source
 if (file.exists("R/alias_resolution.R")) {
-    sys.source("R/alias_resolution.R", envir = lib_env)
+    cgv_source_runtime("R/alias_resolution.R", envir = lib_env)
 }
-sys.source("R/utils.R", envir = lib_env)
-sys.source("R/feedback_delivery.R", envir = lib_env)
-sys.source("R/background_report_jobs.R", envir = lib_env)
-sys.source("R/modules.R", envir = lib_env)
-sys.source("R/server_cache_warm.R", envir = lib_env)
-sys.source("R/server_go_domain.R", envir = lib_env)
-sys.source("R/string_cache.R", envir = lib_env)
-sys.source("R/string_worker.R", envir = lib_env)
-sys.source("R/server_analytics_domain.R", envir = lib_env)
-sys.source("R/server_autocomplete_domain.R", envir = lib_env)
-sys.source("R/server_plot_lifecycle_domain.R", envir = lib_env)
-sys.source("R/server_state_helpers_domain.R", envir = lib_env)
-sys.source("R/server_source_history_domain.R", envir = lib_env)
-sys.source("R/server_popup_status_domain.R", envir = lib_env)
-sys.source("R/server_session_snapshot_domain.R", envir = lib_env)
-sys.source("R/server_shared_analysis_domain.R", envir = lib_env)
-sys.source("R/server_ncbi_download_domain.R", envir = lib_env)
+cgv_source_runtime("R/utils.R", envir = lib_env)
+cgv_source_runtime("R/feedback_delivery.R", envir = lib_env)
+cgv_source_runtime("R/background_report_jobs.R", envir = lib_env)
+cgv_source_runtime("R/modules.R", envir = lib_env)
+cgv_source_runtime("R/server_cache_warm.R", envir = lib_env)
+cgv_source_runtime("R/server_go_domain.R", envir = lib_env)
+cgv_source_runtime("R/string_cache.R", envir = lib_env)
+cgv_source_runtime("R/string_worker.R", envir = lib_env)
+cgv_source_runtime("R/server_analytics_domain.R", envir = lib_env)
+cgv_source_runtime("R/server_autocomplete_domain.R", envir = lib_env)
+cgv_source_runtime("R/server_plot_lifecycle_domain.R", envir = lib_env)
+cgv_source_runtime("R/server_state_helpers_domain.R", envir = lib_env)
+cgv_source_runtime("R/server_source_history_domain.R", envir = lib_env)
+cgv_source_runtime("R/server_popup_status_domain.R", envir = lib_env)
+cgv_source_runtime("R/server_session_snapshot_domain.R", envir = lib_env)
+cgv_source_runtime("R/server_shared_analysis_domain.R", envir = lib_env)
+cgv_source_runtime("R/server_ncbi_download_domain.R", envir = lib_env)
 
 # Cargamos la librería de búsqueda optimizada si existe
-if (file.exists(file.path("R", "gene_search_lib.R"))) {
-    sys.source(file.path("R", "gene_search_lib.R"), envir = lib_env)
+if (file.exists("R/gene_search_lib.R")) {
+    cgv_source_runtime("R/gene_search_lib.R", envir = lib_env)
 } else if (file.exists("../gene_aliases.R")) {
     # Soporte legacy por si acaso
-    sys.source("../gene_aliases.R", envir = lib_env)
+    cgv_source_runtime("../gene_aliases.R", envir = lib_env)
 }
 
 # Limpiamos si ya estaba adjunto (para evitar duplicados al recargar en RStudio)

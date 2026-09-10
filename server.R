@@ -1,6 +1,6 @@
 # server.R
 
-function(input, output, session) {
+.cgv_server_definition <- function(input, output, session) {
     session_t0 <- app_perf_now()
     session_token <- as.character(session$token %||% "unknown")
     session_metric_enabled <- app_env_flag("APP_SESSION_METRICS", default = FALSE)
@@ -37777,3 +37777,5 @@ function(input, output, session) {
     }
 
 }
+
+if (exists("cgv_runtime_server", mode = "function")) cgv_runtime_server(.cgv_server_definition) else .cgv_server_definition

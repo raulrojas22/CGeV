@@ -88,3 +88,5 @@ paper/
 examples/manuscript-cases/
 scripts/validate_reviewer_package.py
 .github/workflows/reviewer-package.yml
+
+/.cgv-compiled/

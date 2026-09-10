@@ -11,6 +11,8 @@ LABEL org.opencontainers.image.title="CGeV" \
 WORKDIR /app
 
 COPY . /app
+# Compile immutable application code once per image, before any user session.
+RUN Rscript scripts/compile_runtime.R /app/.cgv-compiled
 # ShinyProxy launches application containers with an unprivileged runtime UID.
 # Normalize read/traverse permissions after COPY so static assets keep working
 # even if a local file arrived with owner-only permissions (for example 0600).

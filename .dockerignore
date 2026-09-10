@@ -48,3 +48,6 @@ go_annotations/
 # Keep compressed screencasts in the runtime image; exclude source backups.
 www/screencasts.orig/
 www/ctv_backup/
+
+# Always regenerate runtime bytecode inside the image.
+.cgv-compiled/
