@@ -25157,8 +25157,11 @@
         ids_chr <- unique(as.character(ids_chr %||% character(0)))
         ids_chr <- ids_chr[nzchar(ids_chr)]
         footer_prefix <- if (identical(context, "orthologous")) "ortho_footer_" else "homo_footer_"
+        # A progressive group can be closed before every footer is registered.
+        # Only hydrated outputs have options to restore; still hide all cards.
+        configured_footers <- names(outputOptions(output))
         invisible(lapply(
-            paste0(footer_prefix, ids_chr),
+            intersect(paste0(footer_prefix, ids_chr), configured_footers),
             function(output_id) outputOptions(output, output_id, suspendWhenHidden = TRUE)
         ))
         prefix <- if (identical(context, "orthologous")) "ortho-card-" else "homo-card-"
