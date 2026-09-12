@@ -63,7 +63,7 @@ for (label in available) {
 
   slim <- slim_gff_gene_light_index(idx)
   assert_true(
-    identical(names(slim), intersect(c("genes_df", "gene_rows", "norm_map", "comp_map"), names(idx))),
+    identical(names(slim), intersect(c("genes_df", "gene_rows", "norm_map", "comp_map", "comp_order"), names(idx))),
     paste("Unexpected slim index shape for", label)
   )
   assert_true(all(c("genes_df", "gene_rows", "norm_map", "comp_map") %in% names(slim)),

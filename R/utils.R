@@ -1760,7 +1760,15 @@ find_existing_gff_disk_index_path <- function(file_path, cache_kind = "gene_ligh
 
 load_gff_index_from_disk <- function(file_path, cache_kind = "gene_light", base_dir = ".") {
     maintain_annotation_disk_cache(base_dir = base_dir)
-    cpath <- find_existing_gff_disk_index_path(file_path, cache_kind = cache_kind, base_dir = base_dir)
+    disk_kind <- if (identical(cache_kind, "gene_light")) "gene_light_compact_v1" else cache_kind
+    cpath <- if (identical(cache_kind, "gene_light")) {
+        get_gff_disk_index_path(file_path, cache_kind = disk_kind, base_dir = base_dir)
+    } else {
+        find_existing_gff_disk_index_path(file_path, cache_kind = disk_kind, base_dir = base_dir)
+    }
+    if (!file.exists(cpath) && identical(cache_kind, "gene_light")) {
+        cpath <- find_existing_gff_disk_index_path(file_path, cache_kind = cache_kind, base_dir = base_dir)
+    }
     if (!file.exists(cpath)) {
         return(NULL)
     }
@@ -1769,8 +1777,11 @@ load_gff_index_from_disk <- function(file_path, cache_kind = "gene_light", base_
         return(NULL)
     }
 
-    expected_path <- get_gff_disk_index_path(file_path, cache_kind = cache_kind, base_dir = base_dir)
-    if (nzchar(expected_path) && !identical(cpath, expected_path) && !file.exists(expected_path)) {
+    if (identical(cache_kind, "gene_light")) {
+        idx_obj <- compact_gff_gene_light_index(slim_gff_gene_light_index(idx_obj))
+    }
+    expected_path <- get_gff_disk_index_path(file_path, cache_kind = disk_kind, base_dir = base_dir)
+    if (!identical(cache_kind, "gene_light") && nzchar(expected_path) && !identical(cpath, expected_path) && !file.exists(expected_path)) {
         try(saveRDS(idx_obj, expected_path, compress = "gzip"), silent = TRUE)
     }
     idx_obj
@@ -1781,6 +1792,10 @@ save_gff_index_to_disk <- function(file_path, idx_obj, cache_kind = "gene_light"
         return(invisible(FALSE))
     }
     maintain_annotation_disk_cache(base_dir = base_dir)
+    if (identical(cache_kind, "gene_light")) {
+        idx_obj <- compact_gff_gene_light_index(slim_gff_gene_light_index(idx_obj))
+        cache_kind <- "gene_light_compact_v1"
+    }
     cpath <- get_gff_disk_index_path(file_path, cache_kind = cache_kind, base_dir = base_dir)
     cdir <- dirname(cpath)
     if (!dir.exists(cdir)) dir.create(cdir, recursive = TRUE, showWarnings = FALSE)
@@ -1908,11 +1923,64 @@ ensure_gff_autocomplete_cache <- function(file_path, idx, base_dir = ".") {
     cache_obj
 }
 
+# Flat integer ranges avoid one R list allocation per alias. Compact aliases
+# whose complete row vector equals the normal alias reuse that range; signed
+# positions retain the exact original compact-map order, including collisions.
+compact_gff_gene_light_index <- function(idx) {
+    if (!is.list(idx) || !is.null(idx$comp_order)) return(idx)
+    pack <- function(map) list(
+        tokens = names(map) %||% character(0),
+        ends = as.integer(cumsum(lengths(map))),
+        rows = as.integer(unlist(map, use.names = FALSE))
+    )
+    normal <- idx$norm_map
+    compact <- idx$comp_map
+    if (!is.list(normal) || !is.list(compact)) return(idx)
+    positions <- match(names(compact), names(normal))
+    shared <- vapply(seq_along(compact), function(i) {
+        !is.na(positions[i]) && identical(compact[[i]], normal[[positions[i]]])
+    }, logical(1))
+    order <- positions
+    order[!shared] <- -seq_len(sum(!shared))
+    idx$norm_map <- pack(normal)
+    idx$comp_map <- pack(compact[!shared])
+    idx$comp_order <- as.integer(order)
+    idx
+}
+
+gene_lookup_tokens <- function(idx, kind = "norm") {
+    map <- if (identical(kind, "comp")) idx$comp_map else idx$norm_map
+    if (is.null(idx$comp_order)) return(names(map) %||% character(0))
+    if (!identical(kind, "comp")) return(map$tokens)
+    order <- idx$comp_order
+    shared <- order > 0L
+    tokens <- character(length(order))
+    tokens[shared] <- idx$norm_map$tokens[order[shared]]
+    tokens[!shared] <- idx$comp_map$tokens[-order[!shared]]
+    tokens
+}
+
+gene_lookup_hits <- function(idx, tokens, kind = "norm") {
+    map <- if (identical(kind, "comp")) idx$comp_map else idx$norm_map
+    if (is.null(idx$comp_order)) return(unlist(map[tokens], use.names = FALSE))
+    positions <- match(tokens, gene_lookup_tokens(idx, kind))
+    positions <- positions[!is.na(positions)]
+    if (identical(kind, "comp")) positions <- idx$comp_order[positions]
+    unlist(lapply(positions, function(position) {
+        range_map <- if (position > 0L) idx$norm_map else idx$comp_map
+        i <- abs(position)
+        first <- if (i == 1L) 1L else range_map$ends[i - 1L] + 1L
+        last <- range_map$ends[i]
+        if (first > last) return(integer(0))
+        range_map$rows[seq.int(first, last)]
+    }), use.names = FALSE)
+}
+
 slim_gff_gene_light_index <- function(idx) {
     if (!is.list(idx)) {
         return(idx)
     }
-    keep <- intersect(c("genes_df", "gene_rows", "norm_map", "comp_map"), names(idx))
+    keep <- intersect(c("genes_df", "gene_rows", "norm_map", "comp_map", "comp_order"), names(idx))
     idx[keep]
 }
 
@@ -1941,7 +2009,7 @@ precompute_annotation_index_cache <- function(annotation_file_path, base_dir = "
         return(NULL)
     }
     idx <- build_gff_gene_light_index(p)
-    slim_idx <- slim_gff_gene_light_index(idx)
+    slim_idx <- compact_gff_gene_light_index(slim_gff_gene_light_index(idx))
     save_gff_index_to_disk(p, slim_idx, cache_kind = "gene_light", base_dir = base_dir)
     ensure_gff_autocomplete_cache(p, slim_idx, base_dir = base_dir)
     # Pre-warm the genes table so the first plot doesn't have to build it
@@ -3420,7 +3488,7 @@ build_gff_gene_light_index <- function(file_path) {
         ),
         maps
     )
-    idx <- slim_gff_gene_light_index(idx)
+    idx <- compact_gff_gene_light_index(slim_gff_gene_light_index(idx))
     save_gff_index_to_disk(file_path, idx, cache_kind = "gene_light", base_dir = ".")
     ensure_gff_autocomplete_cache(file_path, idx, base_dir = ".")
     cache_env_set(
@@ -3655,12 +3723,12 @@ search_gene_rows_with_index <- function(idx, gene_names, match_mode = c("flex", 
 
     collect_lookup_hits <- function() {
         norm_hits <- if (length(gene_norms) > 0) {
-            unlist(idx$norm_map[gene_norms], use.names = FALSE)
+            gene_lookup_hits(idx, gene_norms)
         } else {
             integer(0)
         }
         comp_hits <- if (length(gene_compacts) > 0) {
-            unlist(idx$comp_map[gene_compacts], use.names = FALSE)
+            gene_lookup_hits(idx, gene_compacts, "comp")
         } else {
             integer(0)
         }
@@ -4152,15 +4220,14 @@ find_partial_gene_suggestions_in_index <- function(file_path, query, file_label 
     }
     q_comp <- normalize_partial_gene_query(query)
     row_idx <- seq_len(nrow(idx$genes_df))
-    comp_map <- idx$comp_map
-    if (is.list(comp_map) && length(comp_map) > 0L) {
-        tokens <- names(comp_map)
+    tokens <- gene_lookup_tokens(idx, "comp")
+    if (length(tokens) > 0L) {
         tokens <- tokens[!is.na(tokens) & nzchar(tokens)]
         hit_tokens <- tokens[startsWith(tokens, q_comp) | grepl(q_comp, tokens, fixed = TRUE)]
         if (length(hit_tokens) == 0L) {
             return(empty_partial_gene_suggestions_df())
         }
-        rel <- unique(unlist(comp_map[hit_tokens], use.names = FALSE))
+        rel <- unique(gene_lookup_hits(idx, hit_tokens, "comp"))
         rel <- suppressWarnings(as.integer(rel))
         rel <- rel[!is.na(rel) & rel >= 1L & rel <= nrow(idx$genes_df)]
         if (length(rel) == 0L) {
