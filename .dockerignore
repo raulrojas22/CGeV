@@ -13,7 +13,9 @@
 
 # Secrets — never bake into the image
 .env
-.env.local
+.env.*
+.Renviron
+.Renviron.*
 
 # Documentation and repository metadata (not needed at runtime)
 docs/

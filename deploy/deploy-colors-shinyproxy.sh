@@ -16,6 +16,7 @@ PUBLIC_HOSTNAME="${PUBLIC_HOSTNAME:-cgev.mobilomics.org}"
 COMPOSE_FILE="${APP_DIR}/docker-compose.shinyproxy.colors.yml"
 COLORS_NGINX_CONFIG="${APP_DIR}/deploy/nginx/cgv-shinyproxy-colors.conf"
 BACKGROUND_WORKER_NAME="cgv-background-report-worker"
+COLORS_CONTAINER_MEMORY="${COLORS_CONTAINER_MEMORY:-5g}"
 BACKGROUND_REPORT_MEMORY="${BACKGROUND_REPORT_MEMORY:-4g}"
 APP_LASTZ_GLOBAL_WORKERS="${APP_LASTZ_GLOBAL_WORKERS:-2}"
 COLORS_INLINE_FAST_SEQUENCE_PREFETCH="${COLORS_INLINE_FAST_SEQUENCE_PREFETCH:-1}"
@@ -70,6 +71,7 @@ Variables opcionales:
   REMOTE_PATH=/home/rarojas/cgv
   CGV_DEPS_IMAGE=cgv-deps:1.0.0
   REBUILD_R_DEPS=1   Reconstruye explícitamente la base de dependencias R.
+  COLORS_CONTAINER_MEMORY=5g  Límite por contenedor; medir pico + margen antes de cambiarlo.
   BACKGROUND_REPORT_MEMORY=4g
   APP_LASTZ_GLOBAL_WORKERS=2
   COLORS_INLINE_FAST_SEQUENCE_PREFETCH=1
@@ -123,6 +125,12 @@ done
   die "El perfil progresivo de Colors exige lotes e initial-visible de 1"
 [[ "$PERF_RUN_LABEL" =~ ^[A-Za-z0-9._-]+$ ]] || \
   die "PERF_RUN_LABEL solo puede contener letras, numeros, punto, guion y guion bajo"
+[[ "$COLORS_CONTAINER_MEMORY" =~ ^[1-9][0-9]*[mMgG]$ ]] || \
+  die "COLORS_CONTAINER_MEMORY debe usar un valor como 2048m o 2g"
+case "$COLORS_CONTAINER_MEMORY" in
+  *[gG]) COLORS_CONTAINER_MEMORY_BYTES=$(( ${COLORS_CONTAINER_MEMORY%?} * 1024 * 1024 * 1024 )) ;;
+  *[mM]) COLORS_CONTAINER_MEMORY_BYTES=$(( ${COLORS_CONTAINER_MEMORY%?} * 1024 * 1024 )) ;;
+esac
 [[ "$BACKGROUND_REPORT_MEMORY" =~ ^[1-9][0-9]*[mMgG]$ ]] || \
   die "BACKGROUND_REPORT_MEMORY debe usar un valor como 2048m o 4g"
 [[ "$APP_LASTZ_GLOBAL_WORKERS" =~ ^[1-9][0-9]*$ ]] && \
@@ -378,6 +386,10 @@ if [[ "$MODE" == "check" ]]; then
   check_eager_profile_value APP_ISOFORM_RENDER_BATCH_DELAY_MS "$COLORS_ISOFORM_RENDER_BATCH_DELAY_MS"
   check_eager_profile_value APP_ORTHO_SERVER_RENDER_NUDGE "$COLORS_ORTHO_SERVER_RENDER_NUDGE"
 
+  DELEGATE_MEMORY="$(rssh "podman inspect '${CHECK_DELEGATE}' --format '{{.HostConfig.Memory}}'")"
+  [[ "$DELEGATE_MEMORY" == "$COLORS_CONTAINER_MEMORY_BYTES" ]] || \
+    die "límite de memoria efectivo ${DELEGATE_MEMORY}, esperado ${COLORS_CONTAINER_MEMORY_BYTES} bytes"
+
   WORKER_STATE="$(rssh "podman inspect '${BACKGROUND_WORKER_NAME}' --format '{{.State.Status}}' 2>/dev/null || true")"
   WORKER_IMAGE="$(rssh "podman inspect '${BACKGROUND_WORKER_NAME}' --format '{{.ImageName}}' 2>/dev/null || true")"
   [[ "$WORKER_STATE" == "running" ]] || die "el worker de reportes no está activo: ${WORKER_STATE:-ausente}"
@@ -413,6 +425,7 @@ if [[ "$SKIP_TESTS" == "0" ]]; then
     node tests/js/test_plot_paint_gate.js
     Rscript scripts/test_colors_shinyproxy_static_assets.R
     python3 -B scripts/test_colors_shinyproxy_candidates.py
+    python3 -B scripts/test_colors_release_sync.py
   )
 else
   echo ""
@@ -463,7 +476,7 @@ echo "[3/7] Sincronizando sólo el código de aplicación..."
 rsync -az --delete-delay --itemize-changes \
   -e "ssh -S $SSH_SOCK" \
   --exclude='/.git' \
-  --exclude='/.env' --exclude='/.env.local' --exclude='/.env.background-reports' --exclude='/.Renviron' \
+  --exclude='/.env' --exclude='/.env.*' --exclude='/.Renviron' --exclude='/.cgv-compiled' \
   --exclude='/.codex_work' --exclude='/.codex_backups' --exclude='/.claude' --exclude='/.qodo' \
   --exclude='/.Rproj.user' --exclude='/.Rhistory' --exclude='/.Rapp.history' \
   --exclude='/annotations' --exclude='/genomes' --exclude='/go_annotations' \
@@ -474,7 +487,7 @@ rsync -az --delete-delay --itemize-changes \
   --exclude='/deploy/deploy-colors-shinyproxy.sh' \
   --exclude='/deploy/docker-compose.shinyproxy.yml' \
   --exclude='/docker-compose.shinyproxy.colors.yml' \
-  --exclude='/deploy/shinyproxy/application.yml' \
+  --exclude='/deploy/shinyproxy/application.yml' --exclude='/shinyproxy' \
   --exclude='/deploy/nginx/cgv-shinyproxy.conf' \
   --exclude='/deploy/nginx/cgv-shinyproxy-colors.conf' \
   "${SCRIPT_DIR}/" "${REMOTE_TARGET}:${APP_DIR}/"
@@ -521,6 +534,7 @@ rssh "set -e
   fi
   python3 -B scripts/build_colors_shinyproxy_candidates.py \
     --application '${APP_DIR}/shinyproxy/application.yml' \
+    --container-memory-limit '${COLORS_CONTAINER_MEMORY}' \
     --application-output '${COLORS_APPLICATION_CANDIDATE}' \
     --compose '${COMPOSE_FILE}' \
     --compose-output '${COLORS_COMPOSE_CANDIDATE}' \
@@ -764,6 +778,19 @@ REMOTE_HASHES="$(
 [[ "$LOCAL_HASHES" == "$REMOTE_HASHES" ]] || die "los hashes de la imagen no coinciden con el commit local"
 echo "  Hashes app/worker/reporte/home/CSS y lectura con UID 10001: OK"
 
+# Exercise Shiny's real loader in the image that will be published. Separate
+# processes avoid reusing global state or a manifest cache across modes.
+for runtime_mode in 0 1; do
+  runtime_args=""
+  [[ "$runtime_mode" == "0" ]] || runtime_args="--require-compiled"
+  rssh "podman run --rm --network none --user 10001:10001 \
+    --tmpfs /app/cache:rw,uid=10001,gid=10001 \
+    -e CGV_CACHE_DIR=/app/cache -e APP_COMPILED_RUNTIME=${runtime_mode} \
+    --entrypoint Rscript '${NEW_IMAGE}' scripts/test_shiny_runtime_loading.R ${runtime_args}" || \
+    die "la imagen no supera la carga real de Shiny (APP_COMPILED_RUNTIME=${runtime_mode})"
+done
+
+
 echo ""
 echo "[5/7] Precalentando índices y preparando permisos persistentes..."
 rssh "set -e
@@ -936,6 +963,11 @@ verify_static_release() {
     if ! podman inspect \"\$delegate\" --format '{{range .Config.Env}}{{println .}}{{end}}' | \
          grep -qx 'APP_STATIC_BASE_URL=/cgv-static/${expected_revision}'; then
       echo 'STATIC_GUARD_FAILED: delegate-static-base' >&2
+      exit 1
+    fi
+    delegate_memory=\$(podman inspect \"\$delegate\" --format '{{.HostConfig.Memory}}')
+    if [ \"\$delegate_memory\" != '${COLORS_CONTAINER_MEMORY_BYTES}' ]; then
+      echo 'MEMORY_GUARD_FAILED: delegate-memory-limit' >&2
       exit 1
     fi
     broker_policy=\$(podman inspect cgv-shinyproxy --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^APP_ORTHO_REQUIRE_VERIFIED_ORTHOLOGY=//p')

@@ -38,6 +38,7 @@ if ('--require-compiled' %in% commandArgs(TRUE) && !compiled) {
 functions <- c('create_gene_plot', 'prepare_gene_plot_model', 'plotServerHomologous',
                'plotServerOrtologous', 'init_plot_lifecycle_domain')
 if (compiled) {
+    stopifnot(!is.null(cgv_compiled_expressions('R/gene_search_lib.R')))
     # Diagnostic only: R has no exported bytecode-body predicate.
     stopifnot(identical(typeof(.Internal(bodyCode(server))), 'bytecode'))
     for (name in functions) {
