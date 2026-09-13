@@ -1544,6 +1544,7 @@
             activation_token <- current$token
             if (requireNamespace("later", quietly = TRUE)) {
                 later::later(function() {
+                    if (isTRUE(session$isClosed())) return(invisible(NULL))
                     isolate({
                         latest <- orthoFirstPaintGate()
                         same_gate <- identical(as.character(latest$run_id %||% ""), run_key) &&
@@ -1615,6 +1616,7 @@
             return(invisible(TRUE))
         }
         later::later(function() {
+            if (isTRUE(session$isClosed())) return(invisible(NULL))
             isolate({
                 latest <- orthoFirstPaintGate()
                 same_gate <- identical(as.character(latest$run_id %||% ""), as.character(run_id %||% "")) &&
