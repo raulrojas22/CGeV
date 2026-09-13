@@ -55,10 +55,6 @@ jobs:
             any::codetools
             any::DBI
             any::RSQLite
-            bioc::Biostrings
-            bioc::Rsamtools
-            bioc::GenomicRanges
-            bioc::rtracklayer
       - name: Run R regression tests
         run: Rscript -e 'testthat::test_dir("tests/testthat", reporter = "summary")'
       - name: Verify actual Shiny loading from source
