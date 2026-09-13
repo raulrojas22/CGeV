@@ -2383,6 +2383,7 @@ fluidPage(
       tags$script(src = versioned_asset_path("js/keepalive.js")),
       tags$script(src = versioned_asset_path("js/dna_loader_unifier.js")),
       tags$script(src = versioned_asset_path("js/activity_feedback.js")),
+      tags$script(src = versioned_asset_path("js/gene_geometry_update.js")),
       tags$script(src = versioned_asset_path("js/plot_zoom.js")),
       tags$script(src = versioned_asset_path("js/genomic_ruler_toggle.js")),
       tags$script(src = versioned_asset_path("js/export_svg.js")),

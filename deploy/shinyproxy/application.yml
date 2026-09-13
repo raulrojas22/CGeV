@@ -70,7 +70,7 @@ proxy:
         - "${SP_DATA_DIR}:/app/data:ro"
         - "${SP_CACHE_DIR}:/app/cache"
         - "${SP_NCBI_DOWNLOADS_DIR}:/app/ncbi_downloads"
-      container-memory: ${SP_CONTAINER_MEMORY:2g}
+      container-memory-limit: ${SP_CONTAINER_MEMORY:2g}
       container-cpu-shares: 1024
       minimum-seats-available: ${SP_MINIMUM_SEATS_AVAILABLE:1}
       allow-container-re-use: ${SP_ALLOW_CONTAINER_RE_USE:false}

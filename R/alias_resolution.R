@@ -1221,11 +1221,11 @@ resolve_bridge_via_sqlite <- function(con, gene_names, idx) {
     if (length(bridge_ids) == 0L) return(integer(0))
 
     norms <- tolower(bridge_ids)
-    hits <- unlist(idx$norm_map[norms], use.names = FALSE)
+    hits <- gene_lookup_hits(idx, norms)
     hits <- unique(hits[!is.na(hits) & hits >= 1L & hits <= length(idx$gene_rows)])
     if (length(hits) == 0L) {
         comps <- normalize_gene_compact(bridge_ids)
-        hits <- unlist(idx$comp_map[comps], use.names = FALSE)
+        hits <- gene_lookup_hits(idx, comps, "comp")
         hits <- unique(hits[!is.na(hits) & hits >= 1L & hits <= length(idx$gene_rows)])
     }
     idx$gene_rows[hits]

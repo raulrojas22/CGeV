@@ -17,7 +17,7 @@ jobs:
   r-tests:
     name: R regression tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -26,6 +26,7 @@ jobs:
       - name: Set up R
         uses: r-lib/actions/setup-r@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
         with:
+          r-version: "4.5"
           use-public-rspm: true
       - name: Install test dependencies
         uses: r-lib/actions/setup-r-dependencies@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
@@ -33,8 +34,39 @@ jobs:
           extra-packages: |
             any::testthat
             any::shiny
+            any::dplyr
+            any::tidyr
+            any::purrr
+            any::stringr
+            any::ggiraph
+            any::ggplot2
+            any::ggrepel
+            any::patchwork
+            any::scales
+            any::bslib
+            any::shinyjs
+            any::shinycssloaders
+            any::shinyWidgets
+            any::vroom
+            any::future
+            any::promises
+            any::httr2
+            any::visNetwork
+            any::codetools
+            any::DBI
+            any::RSQLite
       - name: Run R regression tests
         run: Rscript -e 'testthat::test_dir("tests/testthat", reporter = "summary")'
+      - name: Verify actual Shiny loading from source
+        run: APP_COMPILED_RUNTIME=0 Rscript scripts/test_shiny_runtime_loading.R
+      - name: Build runtime bytecode
+        run: Rscript scripts/compile_runtime.R
+      - name: Verify actual Shiny loading from bytecode
+        run: APP_COMPILED_RUNTIME=1 Rscript scripts/test_shiny_runtime_loading.R --require-compiled
+      - name: Verify deployment configuration candidates
+        run: |
+          python3 -B scripts/test_colors_shinyproxy_candidates.py
+          python3 -B scripts/test_colors_release_sync.py
       - name: Verify feature flags
         run: Rscript scripts/test_gene_catalog_feature_flag.R
 

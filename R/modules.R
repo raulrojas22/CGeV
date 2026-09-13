@@ -663,7 +663,24 @@ extract_composition_percentages <- function(composition_label) {
 
 .cgv_gene_plot_model_cache <- new.env(parent = emptyenv())
 .cgv_gene_plot_model_cache_order <- character(0)
-.cgv_gene_plot_model_version <- "v1"
+.cgv_gene_plot_model_version <- "v2"
+
+make_gene_plot_model_data_key <- function(df, df_gene, df_transcript = NULL) {
+    # Computed once per module from the actual immutable annotation data.
+    # Gene names/spans alone cannot distinguish edited features or annotations.
+    digest::digest(list(df, df_gene, df_transcript), algo = "sha256")
+}
+
+make_gene_plot_model_cache_key <- function(data_key, visual_mode = "compact",
+                                            compact_feature_interactivity = TRUE,
+                                            overlap_tol_bp = 2) {
+    data_key <- trimws(as.character(data_key %||% ""))
+    if (!nzchar(data_key)) return("")
+    visual_mode <- match.arg(visual_mode, c("compact", "detailed"))
+    paste(.cgv_gene_plot_model_version, data_key, visual_mode,
+          identical(visual_mode, "compact") && isTRUE(compact_feature_interactivity),
+          overlap_tol_bp, sep = "|")
+}
 
 get_gene_plot_model_cache_max_entries <- function() {
     raw <- suppressWarnings(as.integer(Sys.getenv("APP_GENE_PLOT_MODEL_CACHE_MAX_ENTRIES", "48")))
@@ -803,10 +820,9 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
     model_t0 <- app_perf_now()
     is_compact_mode <- identical(visual_mode, "compact")
     compact_feature_interactivity <- !is_compact_mode || is_compact_feature_interactivity_enabled()
-    prepared_model_key <- trimws(as.character(model_cache_key %||% ""))
-    if (nzchar(prepared_model_key)) {
-        prepared_model_key <- paste(.cgv_gene_plot_model_version, prepared_model_key, sep = "|")
-    }
+    prepared_model_key <- make_gene_plot_model_cache_key(
+        model_cache_key, visual_mode, compact_feature_interactivity, overlap_tol_bp = 2
+    )
     prepared_model <- get_gene_plot_model_cache(prepared_model_key)
     model_cache_hit <- !is.null(prepared_model)
     if (!model_cache_hit) {
@@ -890,8 +906,12 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
         valid <- rel_start >= 1L & rel_end <= seq_len_total
         result <- rep(NA_real_, length(starts))
         if (any(valid)) {
-            seqs <- substring(full_transcript_seq, rel_start[valid], rel_end[valid])
-            result[valid] <- calc_gc_pct_batch(seqs)
+            if (!is.null(gc_index)) {
+                result[valid] <- gc_percent_from_index(gc_index, rel_start[valid], rel_end[valid])
+            } else {
+                seqs <- substring(full_transcript_seq, rel_start[valid], rel_end[valid])
+                result[valid] <- calc_gc_pct_batch(seqs)
+            }
         }
         result
     }
@@ -911,6 +931,10 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
       }
     }
     app_perf_mark(plot_perf, sprintf("gc source ready len=%d", as.integer(nchar(full_transcript_seq %||% ""))), plot_perf_context)
+    gc_index <- make_genomic_gc_index(full_transcript_seq)
+    # ggplot objects can retain this call environment; do not retain the prefix
+    # arrays after the tooltip values have been materialized in the widget.
+    on.exit({ gc_index <- NULL }, add = TRUE)
 
     get_feature_gc_pct <- function(seqid, start_pos, end_pos) {
       if (!nzchar(full_transcript_seq)) return(NA_real_)
@@ -924,6 +948,7 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
       
       # Validación para evitar errores si el exón sale del margen extraído
       if (rel_start < 1 || rel_end > nchar(full_transcript_seq)) return(NA_real_)
+      if (!is.null(gc_index)) return(gc_percent_from_index(gc_index, rel_start, rel_end))
       
       seq_txt <- substr(full_transcript_seq, rel_start, rel_end)
       calc_gc_pct(seq_txt)
@@ -1763,10 +1788,14 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
         plot_ymax <- max(1.145, ruler_label_y + 0.020)
     }
 
+    # The genomic ruler is drawn by explicit layers; ggplot's axes/grid are hidden.
+    # All position layers use identity stats/positions and automatically trained
+    # scale ranges. Keep their coordinates instead of repeatedly censoring them;
+    # the displayed window remains controlled by coord_cartesian below.
     gene_x_scale <- if (isTRUE(reverse_gene_axis)) {
-        scale_x_reverse(expand = expansion(mult = 0, add = 0))
+        scale_x_reverse(expand = expansion(mult = 0, add = 0), breaks = NULL, oob = scales::oob_keep)
     } else {
-        scale_x_continuous(expand = expansion(mult = 0, add = 0))
+        scale_x_continuous(expand = expansion(mult = 0, add = 0), breaks = NULL, oob = scales::oob_keep)
     }
 
     gg_lines <- ggplot() +
@@ -1935,7 +1964,7 @@ create_gene_plot <- function(df, df_gene, df_transcript = NULL, current_transcri
             vjust = 0.5
         ) +
         gene_x_scale +
-        scale_y_continuous(expand = expansion(mult = 0, add = 0)) +
+        scale_y_continuous(expand = expansion(mult = 0, add = 0), breaks = NULL, oob = scales::oob_keep) +
         coord_cartesian(
           xlim = c(plot_left, plot_right),
           ylim = c(plot_ymin, plot_ymax),
@@ -2747,6 +2776,9 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
             # OPT-4: Process data ONCE at module init (data is a static data.frame)
             module_init_t0 <- app_perf_now()
             processed_cache <- process_gene_data(data)
+            model_data_key <- make_gene_plot_model_data_key(
+                processed_cache$df, processed_cache$df_gene, processed_cache$df_transcript
+            )
 
             # Reactive value to store gene info
             gene_info <- reactiveVal(NULL)
@@ -3342,13 +3374,9 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                 df_gene <- processed_cache$df_gene
                 df_transcript <- processed_cache$df_transcript
 
-                composicion_secuencia <- "Sequence Composition: N/A (genome FASTA not available)"
-                sequence_composition_t0 <- app_perf_now()
-                if (!is.null(info) && !is.null(info$sequence) && nzchar(info$sequence)) {
-                    seq_info <- calculate_sequence_composition(info$sequence)
-                    composicion_secuencia <- seq_info$composition
-                }
-                app_perf_mark_ms(module_perf, "sequence_composition_ms", app_perf_elapsed_ms(sequence_composition_t0), "HOMO_MOD")
+                # The legacy plot argument is unused; footer composition already
+                # comes from the prepared sequence data.
+                composicion_secuencia <- NULL
 
                 transcript_start <- suppressWarnings(min(df$xstart, na.rm = TRUE))
                 transcript_end <- suppressWarnings(max(df$xend, na.rm = TRUE))
@@ -3463,7 +3491,7 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     is_colorblind_mode = is_colorblind_mode,
                     gene_display_name = gene_name,
                     precomputed_genomic_span = span_for_plot,
-                    model_cache_key = cache_key,
+                    model_cache_key = model_data_key,
                     orientation_mode = this_orientation_mode,
                     caller_started_at = create_t0
                 )
@@ -3541,6 +3569,9 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
             # OPT-4: Process data ONCE at module init (data is a static data.frame)
             module_init_t0 <- app_perf_now()
             processed_cache <- process_gene_data(data)
+            model_data_key <- make_gene_plot_model_data_key(
+                processed_cache$df, processed_cache$df_gene, processed_cache$df_transcript
+            )
 
             gene_info <- reactiveVal(NULL)
             genomic_span_seq <- reactiveVal("")
@@ -4176,13 +4207,9 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                 df_gene <- processed_cache$df_gene
                 df_transcript <- processed_cache$df_transcript
 
-                composicion_secuencia <- "Sequence Composition: N/A (genome FASTA not available)"
-                sequence_composition_t0 <- app_perf_now()
-                if (!is.null(info) && !is.null(info$sequence) && nzchar(info$sequence)) {
-                    seq_info <- calculate_sequence_composition(info$sequence)
-                    composicion_secuencia <- seq_info$composition
-                }
-                app_perf_mark_ms(module_perf, "sequence_composition_ms", app_perf_elapsed_ms(sequence_composition_t0), "ORTHO_MOD")
+                # Kept for signature compatibility; create_gene_plot does not
+                # consume this argument. The footer uses prepared composition.
+                composicion_secuencia <- NULL
 
                 transcript_start <- suppressWarnings(min(df$xstart, na.rm = TRUE))
                 transcript_end <- suppressWarnings(max(df$xend, na.rm = TRUE))
@@ -4304,7 +4331,7 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     is_colorblind_mode = is_colorblind_mode,
                     gene_display_name = gene_name,
                     precomputed_genomic_span = span_for_plot,
-                    model_cache_key = cache_key,
+                    model_cache_key = model_data_key,
                     orientation_mode = this_orientation_mode,
                     caller_started_at = create_t0
                 )

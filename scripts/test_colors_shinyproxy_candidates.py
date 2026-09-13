@@ -383,4 +383,32 @@ with tempfile.TemporaryDirectory(prefix="colors-candidates-") as temp_dir:
     assert not compose_output.exists()
     assert "cgv.env mount" in failed.stderr
 
-print("Colors ShinyProxy candidates: OK")
+# A real cap must migrate only the selected app, be idempotent, and reject
+# ambiguous YAML instead of silently leaving a memory setting ineffective.
+legacy_memory = APPLICATION.replace("      display-name: Preserved display",
+    "      display-name: Preserved display\n      container-memory: ${SP_CONTAINER_MEMORY:2g}")
+limited = MODULE.build_application_candidate(legacy_memory, memory_limit="2g")
+assert '      container-memory-limit: "2g"' in limited
+assert '      container-memory:' not in limited
+assert MODULE.build_application_candidate(limited, memory_limit="2g") == limited
+assert 'container-memory-limit: "3g"' in MODULE.build_application_candidate(limited, memory_limit="3g")
+assert 'container-memory-limit: "2048m"' in MODULE.build_application_candidate(APPLICATION, memory_limit="2048m")
+other_app = legacy_memory
+# The fixture has a second app; a cap there must survive verbatim.
+other_app = other_app.replace('        KEEP_OTHER: "yes"',
+    '        KEEP_OTHER: "yes"\n      container-memory: 7g')
+assert '      container-memory: 7g' in MODULE.build_application_candidate(other_app, memory_limit="2g")
+for invalid_text, limit in [
+    (legacy_memory, "0g"), (legacy_memory, "2g;false"), (legacy_memory, "2GB"),
+    (legacy_memory.replace('      container-env:', '      container-memory-limit: 4g\n      container-env:'), "2g"),
+    (legacy_memory.replace('      container-memory:', '        container-memory:'), "2g"),
+    (legacy_memory.replace('${SP_CONTAINER_MEMORY:2g}', '|\n        2g'), "2g"),
+]:
+    try:
+        MODULE.build_application_candidate(invalid_text, memory_limit=limit)
+    except MODULE.CandidateError:
+        pass
+    else:
+        raise AssertionError("Ambiguous/invalid memory limit was accepted")
+
+print("Colors ShinyProxy candidates: OK (including effective memory migration)")

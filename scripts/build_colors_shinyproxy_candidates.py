@@ -233,7 +233,9 @@ def _upsert_mapping(
     return output
 
 
-def build_application_candidate(text: str, orthology_policy: str = "0") -> str:
+def build_application_candidate(
+    text: str, orthology_policy: str = "0", memory_limit: str | None = None
+) -> str:
     lines = _prepare(text, "application.yml")
     values = _resolved_values(APP_VALUES, orthology_policy)
     if _key_matches(lines, "container-env-file"):
@@ -276,6 +278,29 @@ def build_application_candidate(text: str, orthology_policy: str = "0") -> str:
     spec_child_indent = _direct_indent(lines, spec + 1, spec_end, "application.yml cgv spec")
     if _has_direct_key(lines, spec + 1, spec_end, spec_child_indent, "<<"):
         raise CandidateError("application.yml: YAML merge keys in the cgv spec are not accepted")
+
+    if memory_limit is not None:
+        if not re.fullmatch(r"[1-9][0-9]*[mMgG]", memory_limit):
+            raise CandidateError("application.yml: memory limit must be positive MiB/GiB (e.g. 2g)")
+        memory_keys = ("container-memory", "container-memory-limit")
+        matches = [(index + spec + 1, key) for key in memory_keys
+                   for index, _ in _key_matches(lines[spec + 1:spec_end], key)]
+        if len(matches) > 1:
+            raise CandidateError("application.yml: duplicate or competing container memory keys")
+        if matches:
+            index, key = matches[0]
+            if _indent(lines[index]) != spec_child_indent:
+                raise CandidateError("application.yml: memory limit is outside cgv spec properties")
+            _validate_scalar_target(lines[index], key, "application.yml cgv spec")
+            # Rename only the legacy property in this spec. The generic upsert
+            # below also rejects nested YAML and preserves all unrelated text.
+            match = _key_pattern(key).match(_body(lines[index]))
+            lines[index] = (" " * spec_child_indent + "container-memory-limit: "
+                            + match.group("value") + _ending(lines[index]))
+        lines = _upsert_mapping(lines, anchor=spec, end=spec_end,
+                                values=(("container-memory-limit", f'"{memory_limit}"'),),
+                                label="application.yml cgv spec")
+        spec_end = _block_end(lines, spec, spec_indent)
 
     anchors = [
         index
@@ -445,6 +470,7 @@ def write_candidates(
     compose: Path,
     compose_output: Path,
     orthology_policy: str,
+    memory_limit: str | None = None,
 ) -> None:
     resolved = [path.resolve() for path in (application, application_output, compose, compose_output)]
     if len(set(resolved)) != 4:
@@ -456,7 +482,7 @@ def write_candidates(
     compose_text, compose_stat = _read_input(compose, "compose.yml")
 
     # Validate and build both documents before creating either output.
-    application_candidate = build_application_candidate(application_text, orthology_policy)
+    application_candidate = build_application_candidate(application_text, orthology_policy, memory_limit)
     compose_candidate = build_compose_candidate(compose_text, orthology_policy)
 
     staged: list[tuple[Path, Path]] = []
@@ -484,6 +510,7 @@ def main() -> None:
     parser.add_argument("--compose", required=True, type=Path)
     parser.add_argument("--compose-output", required=True, type=Path)
     parser.add_argument("--orthology-policy", required=True, choices=("0", "1"))
+    parser.add_argument("--container-memory-limit", help="Explicit measured app limit, e.g. 2g")
     args = parser.parse_args()
     write_candidates(
         args.application,
@@ -491,6 +518,7 @@ def main() -> None:
         args.compose,
         args.compose_output,
         args.orthology_policy,
+        args.container_memory_limit,
     )
 
 
