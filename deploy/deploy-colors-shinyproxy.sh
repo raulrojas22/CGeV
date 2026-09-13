@@ -777,6 +777,9 @@ REMOTE_HASHES="$(
 )"
 [[ "$LOCAL_HASHES" == "$REMOTE_HASHES" ]] || die "los hashes de la imagen no coinciden con el commit local"
 echo "  Hashes app/worker/reporte/home/CSS y lectura con UID 10001: OK"
+rssh "podman run --rm --network none --entrypoint sh '${NEW_IMAGE}' -c \"test ! -e /app/.env && test ! -e /app/.env.background-reports && test ! -e /app/.Renviron\"" || \
+  die "la imagen contiene un archivo de entorno reservado al servidor"
+
 
 # Exercise Shiny's real loader in the image that will be published. Separate
 # processes avoid reusing global state or a manifest cache across modes.
@@ -784,8 +787,7 @@ for runtime_mode in 0 1; do
   runtime_args=""
   [[ "$runtime_mode" == "0" ]] || runtime_args="--require-compiled"
   rssh "podman run --rm --network none --user 10001:10001 \
-    --tmpfs /app/cache:rw,uid=10001,gid=10001 \
-    -e CGV_CACHE_DIR=/app/cache -e APP_COMPILED_RUNTIME=${runtime_mode} \
+    -e CGV_CACHE_DIR=/tmp/cgv-runtime-check -e APP_COMPILED_RUNTIME=${runtime_mode} \
     --entrypoint Rscript '${NEW_IMAGE}' scripts/test_shiny_runtime_loading.R ${runtime_args}" || \
     die "la imagen no supera la carga real de Shiny (APP_COMPILED_RUNTIME=${runtime_mode})"
 done
@@ -1100,6 +1102,11 @@ rssh "set -e
   grep -qx 'APP_ASSET_VERSION=${STATIC_REVISION}' \"\$env_candidate\"
   grep -qx 'APP_STATIC_BASE_URL=/cgv-static/${STATIC_REVISION}' \"\$env_candidate\"
   grep -qx \"APP_ORTHO_REQUIRE_VERIFIED_ORTHOLOGY=\$orthology_policy\" \"\$env_candidate\"
+  if grep -q '^SP_CONTAINER_MEMORY=' \"\$env_candidate\"; then
+    sed -i -E 's|^SP_CONTAINER_MEMORY=.*|SP_CONTAINER_MEMORY=${COLORS_CONTAINER_MEMORY}|' \"\$env_candidate\"
+  else
+    printf '%s\n' 'SP_CONTAINER_MEMORY=${COLORS_CONTAINER_MEMORY}' >> \"\$env_candidate\"
+  fi
   test -s '${COLORS_APPLICATION_CANDIDATE}'
   test -s '${COLORS_COMPOSE_CANDIDATE}'
   test -s '${COLORS_NGINX_CANDIDATE}'
