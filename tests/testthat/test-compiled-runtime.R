@@ -82,3 +82,49 @@ testthat::test_that('the server loader returns the compiled function in the live
     testthat::expect_identical(compiled(2L,NULL,NULL),10L)
     testthat::expect_identical(formals(compiled),formals(f))
 })
+
+testthat::test_that('Shiny does not shadow explicitly loaded functions or duplicate state', {
+    runtime_source <- normalizePath(file.path(compiled_root, 'R', 'compiled_runtime.R'))
+    sentinel <- normalizePath(file.path(compiled_root, 'R', '_disable_autoload.R'))
+    for (mode in c('1', '0')) {
+        root <- compiled_fixture()
+        file.copy(runtime_source, file.path(root, 'R', 'compiled_runtime.R'))
+        file.copy(sentinel, file.path(root, 'R', '_disable_autoload.R'))
+        writeLines(c(
+            "sys.source('R/compiled_runtime.R', envir = environment())",
+            "lib_env <- new.env(parent = environment())",
+            "cgv_source_runtime('R/example.R', lib_env)",
+            "next_value <- lib_env$next_value",
+            "state <- lib_env$state"
+        ), file.path(root, 'global.R'))
+        globals <- new.env(parent = globalenv())
+        shared <- new.env(parent = globals)
+        withr::with_envvar(c(APP_COMPILED_RUNTIME = mode), {
+            shiny:::loadSupport(root, renv = shared, globalrenv = globals)
+        })
+        testthat::expect_length(ls(shared, all.names = TRUE), 0L)
+        testthat::expect_identical(get('next_value', shared), globals$lib_env$next_value)
+        testthat::expect_identical(get('state', shared), globals$lib_env$state)
+        testthat::expect_identical(get('next_value', shared)(2L), 2L)
+        testthat::expect_identical(globals$lib_env$state$n, 2L)
+    }
+})
+
+testthat::test_that('every R helper has an explicit loader when Shiny autoload is disabled', {
+    loaded <- character()
+    walk <- function(expr) {
+        if (missing(expr)) return(invisible(NULL))
+        if (!is.call(expr)) return(invisible(NULL))
+        if (as.character(expr[[1L]])[[1L]] %in% c('source', 'sys.source', 'cgv_source_runtime') &&
+            length(expr) >= 2L && is.character(expr[[2L]])) {
+            loaded <<- c(loaded, expr[[2L]])
+        }
+        for (child in as.list(expr)[-1L]) walk(child)
+    }
+    for (file in c('global.R', 'ui.R')) {
+        for (expr in parse(file.path(compiled_root, file))) walk(expr)
+    }
+    helpers <- paste0('R/', list.files(file.path(compiled_root, 'R'), pattern = '[.][rR]$'))
+    helpers <- setdiff(helpers, 'R/_disable_autoload.R')
+    testthat::expect_setequal(intersect(loaded, helpers), helpers)
+})
