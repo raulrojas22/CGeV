@@ -401,6 +401,10 @@ if (file.exists("R/gene_search_lib.R")) {
 }
 
 # Limpiamos si ya estaba adjunto (para evitar duplicados al recargar en RStudio)
+# The sharing domain needs the app's asset URL helper. Export the closure
+# explicitly; its global environment retains the current release settings.
+lib_env$versioned_asset_path <- versioned_asset_path
+
 if ("app_libraries" %in% search()) {
     detach("app_libraries")
 }

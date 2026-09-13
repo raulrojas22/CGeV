@@ -3,6 +3,8 @@
 `global.R` loads the application libraries in their required order through
 `cgv_source_runtime()`, into `lib_env`, attached as `app_libraries`.
 `ui.R` separately sources `R/ui_desktop_downloads.R` in its own environment.
+The sharing domain's global dependency, `versioned_asset_path`, is explicitly
+exported into `lib_env`; its closure retains the application's asset settings.
 
 `R/_disable_autoload.R` is Shiny's per-application opt-out for automatic helper
 loading. It must ship with the application. Without it, Shiny sources `R/*.R`
