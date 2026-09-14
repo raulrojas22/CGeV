@@ -46,6 +46,16 @@ active file. Environment files, including `.env.background-reports`, must be
 excluded from every image build context. They are supplied only to their
 intended runtime process.
 
+ShinyProxy's `container-cmd` overrides the image CMD. The candidate builder
+migrates the known legacy `/app/docker/run-app.sh` command to
+`["bash", "/app/deploy/docker/run-app.sh"]` and rejects unknown commands.
+Before cutover, `verify_colors_image_startup.py` starts the exact candidate
+with that command, UID 10001, no network, an ephemeral cache, and resource
+limits, including the selected `COLORS_CONTAINER_MEMORY` cap. It must serve
+`healthz.txt`; the temporary container is then removed.
+Deployment and `--check` also verify the running delegate's command.
+This covers configuration drift that a source/bytecode loader test cannot.
+
 `COLORS_CONTAINER_MEMORY` selects the deployment's explicit app-container cap
 (default `5g`). The candidate builder migrates the ignored `container-memory`
 key to `container-memory-limit` only inside the CGeV spec, rejects ambiguous

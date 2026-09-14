@@ -389,6 +389,9 @@ if [[ "$MODE" == "check" ]]; then
   DELEGATE_MEMORY="$(rssh "podman inspect '${CHECK_DELEGATE}' --format '{{.HostConfig.Memory}}'")"
   [[ "$DELEGATE_MEMORY" == "$COLORS_CONTAINER_MEMORY_BYTES" ]] || \
     die "límite de memoria efectivo ${DELEGATE_MEMORY}, esperado ${COLORS_CONTAINER_MEMORY_BYTES} bytes"
+  DELEGATE_COMMAND="$(rssh "podman inspect '${CHECK_DELEGATE}' --format '{{range .Config.Cmd}}{{println .}}{{end}}'")"
+  [[ "$DELEGATE_COMMAND" == $'bash\n/app/deploy/docker/run-app.sh' ]] || \
+    die "la sesión pública no ejecuta el comando de arranque vigente"
 
   WORKER_STATE="$(rssh "podman inspect '${BACKGROUND_WORKER_NAME}' --format '{{.State.Status}}' 2>/dev/null || true")"
   WORKER_IMAGE="$(rssh "podman inspect '${BACKGROUND_WORKER_NAME}' --format '{{.ImageName}}' 2>/dev/null || true")"
@@ -792,6 +795,10 @@ for runtime_mode in 0 1; do
     die "la imagen no supera la carga real de Shiny (APP_COMPILED_RUNTIME=${runtime_mode})"
 done
 
+rssh "cd '${APP_DIR}' && python3 -B scripts/verify_colors_image_startup.py \
+  --application '${COLORS_APPLICATION_CANDIDATE}' --image '${NEW_IMAGE}' \
+  --memory-limit '${COLORS_CONTAINER_MEMORY}'" || \
+  die "la imagen no arranca con el comando efectivo de ShinyProxy; producción no se cambia"
 
 echo ""
 echo "[5/7] Precalentando índices y preparando permisos persistentes..."
@@ -970,6 +977,11 @@ verify_static_release() {
     delegate_memory=\$(podman inspect \"\$delegate\" --format '{{.HostConfig.Memory}}')
     if [ \"\$delegate_memory\" != '${COLORS_CONTAINER_MEMORY_BYTES}' ]; then
       echo 'MEMORY_GUARD_FAILED: delegate-memory-limit' >&2
+      exit 1
+    fi
+    delegate_command=\$(podman inspect \"\$delegate\" --format '{{json .Config.Cmd}}')
+    if ! printf '%s' \"\$delegate_command\" | python3 -c 'import json,sys; sys.exit(json.load(sys.stdin) != [\"bash\", \"/app/deploy/docker/run-app.sh\"])'; then
+      echo 'STARTUP_GUARD_FAILED: delegate-command' >&2
       exit 1
     fi
     broker_policy=\$(podman inspect cgv-shinyproxy --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^APP_ORTHO_REQUIRE_VERIFIED_ORTHOLOGY=//p')

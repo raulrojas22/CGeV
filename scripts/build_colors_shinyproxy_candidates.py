@@ -10,6 +10,7 @@ silently override those variables.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -301,6 +302,36 @@ def build_application_candidate(
                                 values=(("container-memory-limit", f'"{memory_limit}"'),),
                                 label="application.yml cgv spec")
         spec_end = _block_end(lines, spec, spec_indent)
+
+    # ShinyProxy overrides the image CMD. Migrate only the known entrypoint
+    # from before the repository reorganization; reject custom commands.
+    command = ["bash", "/app/deploy/docker/run-app.sh"]
+    commands = [(index + spec + 1, match) for index, match in
+                _key_matches(lines[spec + 1:spec_end], "container-cmd")]
+    if len(commands) > 1:
+        raise CandidateError("application.yml: duplicate container-cmd")
+    if commands:
+        index, match = commands[0]
+        if _indent(lines[index]) != spec_child_indent:
+            raise CandidateError("application.yml: container-cmd is not a direct cgv property")
+        try:
+            current_command = json.loads(match.group("value"))
+        except (ValueError, TypeError) as error:
+            raise CandidateError("application.yml: container-cmd must be a known JSON command") from error
+        if current_command not in (command, ["bash", "/app/docker/run-app.sh"]):
+            raise CandidateError("application.yml: unknown container-cmd; refusing to replace it")
+        for child in range(index + 1, spec_end):
+            if not _active(lines[child]):
+                continue
+            if _indent(lines[child]) > spec_child_indent:
+                raise CandidateError("application.yml: container-cmd must not have nested content")
+            break
+        lines[index] = (" " * spec_child_indent + "container-cmd: "
+                        + json.dumps(command) + _ending(lines[index]))
+    else:
+        lines.insert(spec + 1, " " * spec_child_indent + "container-cmd: "
+                     + json.dumps(command) + _ending(lines[spec]))
+    spec_end = _block_end(lines, spec, spec_indent)
 
     anchors = [
         index
