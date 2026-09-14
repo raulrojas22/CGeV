@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 
+from verify_colors_image_startup import candidate_command
+
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "build_colors_shinyproxy_candidates.py"
@@ -60,6 +62,9 @@ expected_application = APPLICATION.replace(
     '        APP_ASSET_VERSION: "${APP_ASSET_VERSION:}"\n'
     '        APP_STATIC_BASE_URL: "${APP_STATIC_BASE_URL:}"\n'
     '        APP_ORTHO_REQUIRE_VERIFIED_ORTHOLOGY: "0"\n',
+)
+expected_application = expected_application.replace(
+    "    - id: cgv\n", '    - id: cgv\n      container-cmd: ["bash", "/app/deploy/docker/run-app.sh"]\n'
 )
 assert application_candidate == expected_application
 assert '        APP_ASSET_VERSION: "${APP_ASSET_VERSION:}"\n' in application_candidate
@@ -140,6 +145,33 @@ def rejected(builder, text: str, expected: str) -> None:
         assert expected in str(error), (expected, str(error))
     else:
         raise AssertionError(f"unsafe input was accepted; expected {expected!r}")
+
+
+command_line = '      container-cmd: ["bash", "/app/deploy/docker/run-app.sh"]\n'
+legacy_application = application_candidate.replace("/app/deploy/docker/run-app.sh", "/app/docker/run-app.sh")
+assert MODULE.build_application_candidate(legacy_application) == application_candidate
+assert candidate_command(application_candidate) == ["bash", "/app/deploy/docker/run-app.sh"]
+assert candidate_command(application_candidate.replace("- id: cgv", "- id: cgv # public")) == candidate_command(application_candidate)
+for invalid_candidate in (APPLICATION, legacy_application):
+    try:
+        candidate_command(invalid_candidate)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("startup gate accepted a missing or obsolete command")
+other_command = '      container-cmd: ["custom-other-app"]\n'
+other_application = legacy_application.replace("    - id: other\n", "    - id: other\n" + other_command)
+assert other_command in MODULE.build_application_candidate(other_application)
+rejected(MODULE.build_application_candidate,
+         application_candidate.replace(command_line, command_line * 2), "duplicate container-cmd")
+rejected(MODULE.build_application_candidate,
+         application_candidate.replace("/app/deploy/docker/run-app.sh", "/custom/start.sh"), "unknown container-cmd")
+rejected(MODULE.build_application_candidate,
+         application_candidate.replace(command_line, '      container-cmd:\n        - bash\n'), "known JSON command")
+rejected(MODULE.build_application_candidate,
+         application_candidate.replace(command_line, "  " + command_line), "direct cgv property")
+rejected(MODULE.build_application_candidate,
+         application_candidate.replace(command_line, command_line + "        nested: value\n"), "nested content")
 
 
 rejected(
