@@ -51,7 +51,8 @@ migrates the known legacy `/app/docker/run-app.sh` command to
 `["bash", "/app/deploy/docker/run-app.sh"]` and rejects unknown commands.
 Before cutover, `verify_colors_image_startup.py` starts the exact candidate
 with that command, UID 10001, no network, an ephemeral cache, and resource
-limits. It must serve `healthz.txt`; the temporary container is then removed.
+limits, including the selected `COLORS_CONTAINER_MEMORY` cap. It must serve
+`healthz.txt`; the temporary container is then removed.
 Deployment and `--check` also verify the running delegate's command.
 This covers configuration drift that a source/bytecode loader test cannot.
 

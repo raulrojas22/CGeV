@@ -796,7 +796,8 @@ for runtime_mode in 0 1; do
 done
 
 rssh "cd '${APP_DIR}' && python3 -B scripts/verify_colors_image_startup.py \
-  --application '${COLORS_APPLICATION_CANDIDATE}' --image '${NEW_IMAGE}'" || \
+  --application '${COLORS_APPLICATION_CANDIDATE}' --image '${NEW_IMAGE}' \
+  --memory-limit '${COLORS_CONTAINER_MEMORY}'" || \
   die "la imagen no arranca con el comando efectivo de ShinyProxy; producción no se cambia"
 
 echo ""

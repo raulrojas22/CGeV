@@ -35,7 +35,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--application", type=Path, required=True)
     parser.add_argument("--image", required=True)
+    parser.add_argument("--memory-limit", required=True)
     args = parser.parse_args()
+    if not re.fullmatch(r"[1-9][0-9]*[mMgG]", args.memory_limit):
+        parser.error("--memory-limit must be positive MiB/GiB (e.g. 5g)")
     command = candidate_command(args.application.read_text())
     name = "cgv-startup-check-" + uuid.uuid4().hex[:12]
 
@@ -44,7 +47,7 @@ def main():
 
     try:
         podman("run", "-d", "--name", name, "--network", "none",
-               "--user", "10001:10001", "--cpus", "1", "--memory", "5g",
+               "--user", "10001:10001", "--cpus", "1", "--memory", args.memory_limit,
                "--tmpfs", "/app/cache:mode=1777", "--entrypoint", command[0],
                args.image, *command[1:], check=True, stdout=subprocess.DEVNULL)
         deadline = time.monotonic() + 120
