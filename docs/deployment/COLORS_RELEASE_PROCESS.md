@@ -56,6 +56,19 @@ limits, including the selected `COLORS_CONTAINER_MEMORY` cap. It must serve
 Deployment and `--check` also verify the running delegate's command.
 This covers configuration drift that a source/bytecode loader test cannot.
 
+Guide videos in `www/screencasts/` are separately provisioned binary assets,
+excluded from Git. Colors synchronization preserves that server directory even
+when deploying from a clean worktree. `deploy/guide-videos.sha256` records their
+approved bytes; the inventory must exactly match `guide_media_files` in `ui.R`.
+The deploy checks every video before building, and again as UID 10001 inside
+the candidate image before cutover. CI checks the inventory and rejection cases.
+
+For a new server or missing assets, recover `www/screencasts/` from the last
+verified release image or its immutable static snapshot, then run
+`python3 scripts/verify_guide_assets.py` in the server app directory. Do not
+substitute source recordings or unrelated files. A deliberate video update
+requires updating the manifest and provisioning the matching bytes on Colors.
+
 `COLORS_CONTAINER_MEMORY` selects the deployment's explicit app-container cap
 (default `5g`). The candidate builder migrates the ignored `container-memory`
 key to `container-memory-limit` only inside the CGeV spec, rejects ambiguous
