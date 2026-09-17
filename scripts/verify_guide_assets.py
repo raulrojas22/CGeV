@@ -25,6 +25,13 @@ def verify(root: Path, catalog_only: bool = False) -> int:
     if set(hashes) != expected:
         raise ValueError("guide video manifest does not match the UI catalog")
     if not catalog_only:
+        deployed_dir = root / "www/screencasts"
+        if deployed_dir.is_dir():
+            for entry in sorted(deployed_dir.rglob("*")):
+                if entry.is_symlink() or entry.is_file():
+                    relative = "www/screencasts/" + entry.relative_to(deployed_dir).as_posix()
+                    if relative not in hashes:
+                        raise ValueError(f"unlisted guide media file: {relative}")
         for relative, expected_hash in hashes.items():
             path = root / relative
             if path.is_symlink() or not path.is_file():

@@ -34,6 +34,15 @@ with tempfile.TemporaryDirectory() as tmp:
     target.write_bytes(b"original video")
     media.symlink_to(target)
     rejected("symlinked")
+    manifest.write_text(manifest.read_text().splitlines(True)[0])
+    media.unlink()
+    media.write_bytes(b"original video")
+    assert verify(fixture) == 1
+    extra = fixture / "www/screencasts/guide-extra.mp4"
+    extra.write_bytes(b"unlisted video")
+    rejected("unlisted")
+    extra.unlink()
+    assert verify(fixture) == 1
     manifest.write_text(manifest.read_text() * 2)
     rejected("duplicate")
     manifest.write_text("")
