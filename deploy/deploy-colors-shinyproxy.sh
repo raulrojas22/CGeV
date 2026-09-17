@@ -212,6 +212,7 @@ echo "============================================"
 echo ""
 
 ssh -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=yes \
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
   -o ControlPersist=60 -S "$SSH_SOCK" -fN "$REMOTE_TARGET"
 
 echo "[preflight] Auditando infraestructura segura en Colors..."
@@ -429,6 +430,7 @@ if [[ "$SKIP_TESTS" == "0" ]]; then
     Rscript scripts/test_colors_shinyproxy_static_assets.R
     python3 -B scripts/test_colors_shinyproxy_candidates.py
     python3 -B scripts/test_colors_release_sync.py
+    python3 -B scripts/test_guide_assets.py
   )
 else
   echo ""
@@ -487,6 +489,7 @@ rsync -az --delete-delay --itemize-changes \
   --exclude='/build_sources' --exclude='/outputs' --exclude='/logs' --exclude='/tmp' \
   --exclude='/desktop' --exclude='/INSTALABLES-FINALES' \
   --exclude='/node_modules' --exclude='/paper' \
+  --exclude='/www/screencasts' \
   --exclude='/deploy/deploy-colors-shinyproxy.sh' \
   --exclude='/deploy/docker-compose.shinyproxy.yml' \
   --exclude='/docker-compose.shinyproxy.colors.yml' \
@@ -494,6 +497,9 @@ rsync -az --delete-delay --itemize-changes \
   --exclude='/deploy/nginx/cgv-shinyproxy.conf' \
   --exclude='/deploy/nginx/cgv-shinyproxy-colors.conf' \
   "${SCRIPT_DIR}/" "${REMOTE_TARGET}:${APP_DIR}/"
+
+rssh "cd '${APP_DIR}' && python3 -B scripts/verify_guide_assets.py" || \
+  die "los videos de la guía faltan o difieren del inventario; restaura los assets verificados antes de construir"
 
 # Copy only the allow-listed mail variables. The minimal file is never tracked,
 # is mode 0600 on Colors, and is mounted only into the background worker.
@@ -780,6 +786,9 @@ REMOTE_HASHES="$(
 )"
 [[ "$LOCAL_HASHES" == "$REMOTE_HASHES" ]] || die "los hashes de la imagen no coinciden con el commit local"
 echo "  Hashes app/worker/reporte/home/CSS y lectura con UID 10001: OK"
+rssh "podman run --rm --network none --user 10001:10001 --entrypoint sh '${NEW_IMAGE}' \
+  -c 'cd /app && sha256sum -c deploy/guide-videos.sha256'" || \
+  die "la imagen no conserva todos los videos públicos de la guía"
 rssh "podman run --rm --network none --entrypoint sh '${NEW_IMAGE}' -c \"test ! -e /app/.env && test ! -e /app/.env.background-reports && test ! -e /app/.Renviron\"" || \
   die "la imagen contiene un archivo de entorno reservado al servidor"
 

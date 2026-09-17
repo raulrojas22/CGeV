@@ -67,6 +67,7 @@ jobs:
         run: |
           python3 -B scripts/test_colors_shinyproxy_candidates.py
           python3 -B scripts/test_colors_release_sync.py
+          python3 -B scripts/test_guide_assets.py
       - name: Verify feature flags
         run: Rscript scripts/test_gene_catalog_feature_flag.R
 
