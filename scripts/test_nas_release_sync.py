@@ -34,6 +34,22 @@ with tempfile.TemporaryDirectory() as directory:
     assert (dst / 'www/main.css').read_text() == 'new style'
     assert not (dst / 'obsolete-source.R').exists()
 
+    # Clean worktrees may reference a credentials file outside the checkout.
+    # Transfer its bytes with private permissions, never the local symlink.
+    credentials = Path(directory) / 'private-env'
+    credentials.write_text('EXAMPLE_KEY=fixture\n')
+    (src / '.env.local').symlink_to(credentials)
+    env_block = script[script.index('rsync -az --chmod'):script.index('nssh "chmod 600')]
+    flags = [word for word in shlex.split(env_block.replace('\\\n', ' '))
+             if word.startswith('--chmod=') or word == '--copy-links']
+    subprocess.run(['rsync', '-az', *flags, str(src / '.env.local'), str(dst / '.env.local')], check=True)
+    permission_line = next(line for line in script.splitlines() if line.startswith('nssh "chmod 600'))
+    subprocess.run(['bash', '-c', 'nssh() { bash -c "$1"; }; ' + permission_line],
+                   env=dict(os.environ, NAS_APP_DIR=str(dst)), check=True)
+    assert not (dst / '.env.local').is_symlink()
+    assert (dst / '.env.local').read_text() == credentials.read_text()
+    assert (dst / '.env.local').stat().st_mode & 0o777 == 0o600
+
     # Execute the real build block with a failed Docker build: the live env
     # must still reference the old image and its static snapshot.
     live_env = 'CGV_IMAGE=cgv:old\nAPP_ASSET_VERSION=old\n'
