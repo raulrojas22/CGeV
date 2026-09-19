@@ -57,8 +57,8 @@ with tempfile.TemporaryDirectory() as directory:
     docker = Path(directory) / 'docker-probe'
     docker.write_text('''#!/bin/sh
 if [ "$1 $2" = "image inspect" ] && [ "$3" = "cgv:candidate" ]; then exit 1; fi
-if [ "$1 $2" = "compose build" ]; then
-  printf '%s' "$CGV_IMAGE" > "$NAS_APP_DIR/built-image"
+if [ "$1" = "build" ]; then
+  printf '%s\\n' "$@" > "$NAS_APP_DIR/build-args"
   exit 23
 fi
 exit 0
@@ -70,11 +70,13 @@ exit 0
     result = subprocess.run(['bash', '-c', 'set -e; nssh() { bash -c "$1"; };\n' + build],
                             env=env, capture_output=True, text=True)
     assert result.returncode == 23, result.stderr
-    assert (dst / 'built-image').read_text() == 'cgv:candidate'
+    argv = (dst / 'build-args').read_text().splitlines()
+    assert argv[argv.index('-t') + 1] == 'cgv:candidate'
+    assert argv[argv.index('--build-arg') + 1] == 'CGV_DEPS_IMAGE=cgv-deps:probe'
     assert (dst / '.env').read_text() == live_env
 
 # A failed media check or image build must happen before stopping live services.
-assert script.index('scripts/verify_guide_assets.py') < script.index(' compose build')
+assert script.index('scripts/verify_guide_assets.py') < script.index(' -t ')
 assert script.index('sha256sum -c deploy/guide-videos.sha256') < script.index(' stop cgv ')
 assert script.index('upsert_env CGV_IMAGE') > script.index(' stop cgv-shinyproxy ')
 assert script.index('upsert_env APP_ASSET_VERSION') > script.index(' stop cgv-shinyproxy ')
