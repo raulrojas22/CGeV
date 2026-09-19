@@ -48,6 +48,9 @@ también comprueba los hashes dentro de la imagen. Si falta un video, hay que
 reprovisionarlo desde el conjunto aprobado antes de desplegar. No se incluye
 la carpeta de videos en Git. La construcción y el prewarm preceden al corte
 de los contenedores anteriores; el túnel permanece activo.
+Cada candidato usa una etiqueta nueva `cgv:release-<commit>-<fecha UTC>`.
+Se rechaza una etiqueta existente y la configuración activa solo cambia después
+del corte; una construcción rechazada no puede asignarse a sesiones nuevas.
 
 ### Supervisión del túnel en TrueNAS
 

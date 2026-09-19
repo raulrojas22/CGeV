@@ -38,15 +38,9 @@ local_env_value() {
   fi
 }
 
-ENV_CGV_IMAGE=""
-if [[ -f "${LOCAL_APP}/.env" ]]; then
-  ENV_CGV_IMAGE="$(grep -E '^CGV_IMAGE=' "${LOCAL_APP}/.env" | tail -1 | cut -d= -f2- || true)"
-  ENV_CGV_IMAGE="${ENV_CGV_IMAGE%\"}"
-  ENV_CGV_IMAGE="${ENV_CGV_IMAGE#\"}"
-  ENV_CGV_IMAGE="${ENV_CGV_IMAGE%\'}"
-  ENV_CGV_IMAGE="${ENV_CGV_IMAGE#\'}"
-fi
-CGV_IMAGE="${CGV_IMAGE:-${ENV_CGV_IMAGE:-cgv:1.0.0}}"
+SOURCE_REV="$(git -C "$SCRIPT_DIR" rev-parse --short=12 HEAD)"
+CGV_IMAGE="${CGV_IMAGE:-cgv:release-${SOURCE_REV}-$(date -u +%Y%m%dT%H%M%SZ)}"
+[[ "$CGV_IMAGE" =~ ^[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$ ]] || exit 2
 CGV_DEPS_IMAGE="${CGV_DEPS_IMAGE:-$(local_env_value CGV_DEPS_IMAGE cgv-deps:1.0.0)}"
 REBUILD_R_DEPS="${REBUILD_R_DEPS:-0}"
 CGV_NGINX_PORT="${CGV_NGINX_PORT:-$(local_env_value CGV_NGINX_PORT 18080)}"
@@ -232,17 +226,10 @@ echo "[3/7] Preparando dependencias de R y construyendo '${CGV_IMAGE}' en el NAS
 nssh "
   set -e
   cd ${NAS_APP_DIR}
-  upsert_env() {
-    key=\"\$1\"
-    value=\"\$2\"
-    if grep -q \"^\${key}=\" .env; then
-      sed -i \"s#^\${key}=.*#\${key}=\${value}#\" .env
-    else
-      printf '%s=%s\n' \"\$key\" \"\$value\" >> .env
-    fi
-  }
-  upsert_env CGV_IMAGE '${CGV_IMAGE}'
-  upsert_env CGV_DEPS_IMAGE '${CGV_DEPS_IMAGE}'
+  if ${REMOTE_DOCKER} image inspect '${CGV_IMAGE}' >/dev/null 2>&1; then
+    echo 'ERROR: la imagen candidata ya existe; utiliza una etiqueta nueva e inmutable.' >&2
+    exit 1
+  fi
 
   if [ '${REBUILD_R_DEPS}' = '1' ] ||
      ! ${REMOTE_DOCKER} image inspect '${CGV_DEPS_IMAGE}' >/dev/null 2>&1 ||
@@ -289,22 +276,6 @@ nssh "
     exit 1
   fi
 
-  upsert_env() {
-    key=\"\$1\"
-    value=\"\$2\"
-    if grep -q \"^\${key}=\" .env; then
-      sed -i \"s#^\${key}=.*#\${key}=\${value}#\" .env
-    else
-      printf '%s=%s\n' \"\$key\" \"\$value\" >> .env
-    fi
-  }
-  upsert_env CGV_IMAGE '${CGV_IMAGE}'
-  upsert_env APP_ASSET_VERSION \"\$static_revision\"
-  upsert_env APP_STATIC_BASE_URL \"/cgv-static/\$static_revision\"
-
-  test \"\$(grep '^CGV_IMAGE=' .env | tail -1)\" = \"CGV_IMAGE=${CGV_IMAGE}\"
-  test \"\$(grep '^APP_ASSET_VERSION=' .env | tail -1)\" = \"APP_ASSET_VERSION=\$static_revision\"
-  test \"\$(grep '^APP_STATIC_BASE_URL=' .env | tail -1)\" = \"APP_STATIC_BASE_URL=/cgv-static/\$static_revision\"
   echo \"  Snapshot estatico listo: \$static_revision\"
 "
 
@@ -371,6 +342,12 @@ nssh "
     fi
   }
 
+  static_image_id=\$(${REMOTE_DOCKER} image inspect --format '{{.Id}}' '${CGV_IMAGE}' | tr -d '\r\n')
+  static_revision=\${static_image_id#sha256:}
+  upsert_env CGV_IMAGE '${CGV_IMAGE}'
+  upsert_env CGV_DEPS_IMAGE '${CGV_DEPS_IMAGE}'
+  upsert_env APP_ASSET_VERSION \"\$static_revision\"
+  upsert_env APP_STATIC_BASE_URL \"/cgv-static/\$static_revision\"
   echo '  Fijando rutas absolutas del host NAS en .env...'
   upsert_env CGV_NGINX_PORT '${CGV_NGINX_PORT}'
   upsert_env CGV_PUBLIC_BASE_URL 'https://${NAS_PUBLIC_HOSTNAME}'

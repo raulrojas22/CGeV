@@ -87,7 +87,7 @@ done
 # Stop only the former manual connector after the supervised connector is ready.
 python3 - "$NAS_PATH" "$TUNNEL_CONFIG" <<'PY'
 from pathlib import Path
-import os, signal, subprocess, sys
+import os, pwd, signal, subprocess, sys
 root, config = Path(sys.argv[1]), sys.argv[2]
 current = int(subprocess.check_output(['systemctl', '--user', 'show', 'cgv-cloudflared.service', '-p', 'MainPID', '--value']))
 pidfile = root / 'tunnel.pid'
@@ -95,10 +95,16 @@ if pidfile.exists():
     try:
         previous = int(pidfile.read_text().strip())
         proc = Path('/proc') / str(previous)
-        args = (proc / 'cmdline').read_bytes().split(b'\0')
+        args = (proc / 'cmdline').read_bytes().rstrip(b'\0').split(b'\0')
+        explicit_config = (b'--config' in args and os.fsencode(config) in args and b'cgv' in args)
+        default_dir = Path(pwd.getpwuid(os.getuid()).pw_dir) / '.cloudflared'
+        default_config = next((p for p in (default_dir / 'config.yml', default_dir / 'config.yaml') if p.is_file()), None)
+        legacy_command = (args[1:] == [b'tunnel', b'--protocol', b'http2', b'run', b'cgv']
+                          and default_config is not None
+                          and Path(config).resolve() == default_config.resolve())
         if (previous != current and proc.stat().st_uid == os.getuid()
                 and (proc / 'exe').resolve() == (root / 'cloudflared').resolve()
-                and b'--config' in args and os.fsencode(config) in args and b'cgv' in args):
+                and (explicit_config or legacy_command)):
             os.kill(previous, signal.SIGTERM)
     except (ValueError, ProcessLookupError, FileNotFoundError):
         pass
