@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # deploy-nas-shinyproxy.sh — Despliega CGV con ShinyProxy en el NAS
-# URL: https://cgev.mobilomics.org
+# URL: https://cgvapp.com
 # Soporta 3-5 usuarios simultaneos con contenedores por usuario.
 # ShinyProxy queda sin login y limitado por SP_MAX_TOTAL_INSTANCES.
 # ============================================================
@@ -12,8 +12,10 @@ NAS_HOST="${NAS_HOST:-192.168.1.200}"
 NAS_PATH="${NAS_PATH:-/mnt/Datos4raro/cgv}"
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_DIR="$(cd "${DEPLOY_DIR}/.." && pwd)"
-LOCAL_APP="${LOCAL_APP:-${SCRIPT_DIR}/}"
+LOCAL_APP="${LOCAL_APP:-${SCRIPT_DIR}}"
+LOCAL_APP="${LOCAL_APP%/}/"
 LOCAL_ENV_FILE="${LOCAL_APP}.env.local"
+NAS_PUBLIC_HOSTNAME="${NAS_PUBLIC_HOSTNAME:-cgvapp.com}"
 TUNNEL_NAME="cgv"
 REMOTE_DOCKER="${REMOTE_DOCKER:-docker}"
 NAS_APP_DIR="${NAS_PATH}/app"
@@ -51,23 +53,26 @@ CGV_NGINX_PORT="${CGV_NGINX_PORT:-$(local_env_value CGV_NGINX_PORT 18080)}"
 PERF_RUN_LABEL="${PERF_RUN_LABEL:-manual}"
 NAS_PERF_TIMING="${NAS_PERF_TIMING:-0}"
 
-# Personal/NAS uses the same fixed eager profile as Colors. Keeping these
-# values here prevents an old remote .env from silently re-enabling deferred
-# enrichment, progressive card batches, or a second render nudge.
+# Present complete cards progressively, with the same fixed profile as Colors.
+# A stale remote .env must not restore bulk rendering or deferred information.
 NAS_ORTHO_SUSPEND_HIDDEN="1"
 NAS_HOMO_DEFER_SEQUENCE="0"
 NAS_ORTHO_DEFER_SEQUENCE="0"
 NAS_FOOTER_DEFER_SEQUENCE="0"
 NAS_DEFER_FEATURE_GC="0"
-NAS_ORTHO_RENDER_CHUNK_SIZE="64"
-NAS_ORTHO_AUTO_RENDER_MORE="0"
-NAS_ORTHO_AUTO_RENDER_DELAY_MS="0"
-NAS_HOMO_INITIAL_VISIBLE="64"
-NAS_ORTHO_INITIAL_VISIBLE="64"
+NAS_HOMO_RENDER_CHUNK_SIZE="1"
+NAS_HOMO_AUTO_RENDER_DELAY_MS="120"
+NAS_ORTHO_RENDER_CHUNK_SIZE="1"
+NAS_ORTHO_AUTO_RENDER_MORE="1"
+NAS_ORTHO_AUTO_RENDER_DELAY_MS="120"
+NAS_HOMO_INITIAL_VISIBLE="1"
+NAS_ORTHO_INITIAL_VISIBLE="1"
+NAS_ISOFORM_RENDER_BATCH_SIZE="1"
+NAS_ISOFORM_RENDER_BATCH_DELAY_MS="120"
 NAS_ORTHO_SERVER_RENDER_NUDGE="0"
 
 SSH_SOCK="/tmp/deploy-nas-sp-ssh-$$"
-ssh -fNM -S "$SSH_SOCK" "${NAS_USER}@${NAS_HOST}"
+ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -fNM -S "$SSH_SOCK" "${NAS_USER}@${NAS_HOST}"
 trap 'ssh -S "$SSH_SOCK" -O exit "${NAS_USER}@${NAS_HOST}" 2>/dev/null' EXIT
 
 nssh() {
@@ -94,10 +99,10 @@ ensure_remote_docker_access() {
 
 echo "============================================"
 echo "  CGV ShinyProxy — Deploy to NAS"
-echo "  https://cgev.mobilomics.org"
+echo "  https://${NAS_PUBLIC_HOSTNAME}"
 echo "  Modo: multiusuario (1 contenedor/usuario)"
 echo "  Telemetría: ${NAS_PERF_TIMING} (etiqueta=${PERF_RUN_LABEL})"
-echo "  Render: eager, hasta 64 tarjetas primarias simultáneas"
+echo "  Render: tarjetas completas, lotes de 1, intervalo de 120 ms"
 echo "  R dependencies: ${CGV_DEPS_IMAGE} (rebuild=${REBUILD_R_DEPS})"
 echo "============================================"
 echo ""
@@ -114,6 +119,7 @@ if ! [[ "${PERF_RUN_LABEL}" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "ERROR: PERF_RUN_LABEL solo puede contener letras, numeros, punto, guion y guion bajo." >&2
   exit 1
 fi
+[[ "$NAS_PUBLIC_HOSTNAME" =~ ^[A-Za-z0-9.-]+$ ]] || exit 2
 
 echo "Verificando acceso a Docker en el NAS..."
 ensure_remote_docker_access
@@ -130,6 +136,11 @@ rsync -avz --progress --delete \
   --exclude=annotations --exclude=genomes \
   --exclude=go_annotations --exclude=cache \
   --exclude=ncbi_downloads \
+  --exclude=data/alias_index \
+  --exclude='/data' --exclude='/www/screencasts' \
+  --exclude='/outputs' --exclude='/logs' --exclude='/tmp' \
+  --exclude='/desktop' --exclude='/INSTALABLES-FINALES' \
+  --exclude='/.env' --exclude='/.env.*' --exclude='/.Renviron' \
   --exclude=.git --exclude=.claude \
   --exclude=node_modules \
   --exclude=.Rapp.history --exclude=.Rhistory \
@@ -142,6 +153,7 @@ rsync -az --chmod=Fu=rw,Fgo= \
   "${LOCAL_ENV_FILE}" \
   "${NAS_USER}@${NAS_HOST}:${NAS_APP_DIR}/.env.local"
 nssh "chmod 600 '${NAS_APP_DIR}/.env.local'"
+nssh "cd '${NAS_APP_DIR}' && python3 -B scripts/verify_guide_assets.py"
 echo ""
 
 # --- Paso 1b: Verificar datos grandes en el NAS ---
@@ -214,49 +226,6 @@ nssh "
 	"
 echo ""
 
-# --- Paso 2: Detener servicios anteriores ---
-echo "[2/7] Deteniendo tunel Cloudflare y servicios anteriores..."
-nssh "
-  pid=\$(cat ${NAS_PATH}/tunnel.pid 2>/dev/null || echo '')
-  if [ -n \"\$pid\" ] && kill -0 \$pid 2>/dev/null; then
-    kill \$pid && echo '  Tunel PID '\$pid' detenido'
-  else
-    echo '  No habia tunel activo'
-  fi
-"
-nssh "
-  echo '  Deteniendo contenedores anteriores...'
-  ${REMOTE_DOCKER} stop cgv 2>/dev/null || echo '  (no habia cgv)'
-  ${REMOTE_DOCKER} stop cgv-shinyproxy 2>/dev/null || echo '  (no habia shinyproxy)'
-  ${REMOTE_DOCKER} stop cgv-nginx 2>/dev/null || echo '  (no habia nginx)'
-  ${REMOTE_DOCKER} stop cgv-background-report-worker 2>/dev/null || echo '  (no habia worker de reportes)'
-  ${REMOTE_DOCKER} rm cgv cgv-shinyproxy cgv-nginx cgv-background-report-worker 2>/dev/null || true
-  stale=\$(${REMOTE_DOCKER} ps -aq --filter name=sp-container- 2>/dev/null || true)
-  if [ -n \"\$stale\" ]; then
-    echo '  Deteniendo contenedores CGV dinamicos de ShinyProxy...'
-    ${REMOTE_DOCKER} stop \$stale >/dev/null 2>&1 || true
-    ${REMOTE_DOCKER} rm \$stale >/dev/null 2>&1 || true
-  fi
-  echo '  Contenedores detenidos y eliminados.'
-"
-
-echo ""
-echo "Verificando puerto web ${CGV_NGINX_PORT} en el NAS..."
-nssh "
-  port='${CGV_NGINX_PORT}'
-  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | awk '{print \$4}' | grep -Eq '(^|:)'\${port}'$'; then
-    echo \"ERROR: el puerto \${port} ya esta ocupado en el NAS.\" >&2
-    echo \"Prueba otro puerto editando CGV_NGINX_PORT en ${NAS_APP_DIR}/.env o en tu .env local.\" >&2
-    exit 1
-  fi
-  if ${REMOTE_DOCKER} ps --format '{{.Ports}}' | grep -Eq '0\\.0\\.0\\.0:'\"\${port}\"'->|:'\"\${port}\"'->'; then
-    echo \"ERROR: Docker ya tiene un contenedor publicando el puerto \${port}.\" >&2
-    ${REMOTE_DOCKER} ps --format 'table {{.Names}}\t{{.Ports}}' >&2
-    exit 1
-  fi
-  echo \"  Puerto \${port} disponible.\"
-"
-
 # --- Paso 3: Construir imagen CGV ---
 echo ""
 echo "[3/7] Preparando dependencias de R y construyendo '${CGV_IMAGE}' en el NAS..."
@@ -286,6 +255,7 @@ nssh "
   fi
   ${REMOTE_DOCKER} run --rm --entrypoint /usr/bin/google-chrome '${CGV_DEPS_IMAGE}' --version >/dev/null
   CGV_IMAGE='${CGV_IMAGE}' CGV_DEPS_IMAGE='${CGV_DEPS_IMAGE}' ${REMOTE_DOCKER} compose build
+  ${REMOTE_DOCKER} run --rm --entrypoint sh '${CGV_IMAGE}' -c 'cd /app && sha256sum -c deploy/guide-videos.sha256'
 "
 
 # --- Paso 4: Prewarming (indices SQLite y snapshot estatico inmutable) ---
@@ -338,6 +308,41 @@ nssh "
   echo \"  Snapshot estatico listo: \$static_revision\"
 "
 
+# --- Corte: candidato construido y prewarm verificado ---
+echo "Deteniendo servicios anteriores para activar el candidato..."
+nssh "
+  echo '  Deteniendo contenedores anteriores...'
+  ${REMOTE_DOCKER} stop cgv 2>/dev/null || echo '  (no habia cgv)'
+  ${REMOTE_DOCKER} stop cgv-shinyproxy 2>/dev/null || echo '  (no habia shinyproxy)'
+  ${REMOTE_DOCKER} stop cgv-nginx 2>/dev/null || echo '  (no habia nginx)'
+  ${REMOTE_DOCKER} stop cgv-background-report-worker 2>/dev/null || echo '  (no habia worker de reportes)'
+  ${REMOTE_DOCKER} rm cgv cgv-shinyproxy cgv-nginx cgv-background-report-worker 2>/dev/null || true
+  stale=\$(${REMOTE_DOCKER} ps -aq --filter name=sp-container- 2>/dev/null || true)
+  if [ -n \"\$stale\" ]; then
+    echo '  Deteniendo contenedores CGV dinamicos de ShinyProxy...'
+    ${REMOTE_DOCKER} stop \$stale >/dev/null 2>&1 || true
+    ${REMOTE_DOCKER} rm \$stale >/dev/null 2>&1 || true
+  fi
+  echo '  Contenedores detenidos y eliminados.'
+"
+
+echo ""
+echo "Verificando puerto web ${CGV_NGINX_PORT} en el NAS..."
+nssh "
+  port='${CGV_NGINX_PORT}'
+  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | awk '{print \$4}' | grep -Eq '(^|:)'\${port}'$'; then
+    echo \"ERROR: el puerto \${port} ya esta ocupado en el NAS.\" >&2
+    echo \"Prueba otro puerto editando CGV_NGINX_PORT en ${NAS_APP_DIR}/.env o en tu .env local.\" >&2
+    exit 1
+  fi
+  if ${REMOTE_DOCKER} ps --format '{{.Ports}}' | grep -Eq '0\\.0\\.0\\.0:'\"\${port}\"'->|:'\"\${port}\"'->'; then
+    echo \"ERROR: Docker ya tiene un contenedor publicando el puerto \${port}.\" >&2
+    ${REMOTE_DOCKER} ps --format 'table {{.Names}}\t{{.Ports}}' >&2
+    exit 1
+  fi
+  echo \"  Puerto \${port} disponible.\"
+"
+
 # --- Paso 5: Iniciar ShinyProxy ---
 echo ""
 echo "[5/7] Iniciando ShinyProxy + nginx..."
@@ -368,6 +373,7 @@ nssh "
 
   echo '  Fijando rutas absolutas del host NAS en .env...'
   upsert_env CGV_NGINX_PORT '${CGV_NGINX_PORT}'
+  upsert_env CGV_PUBLIC_BASE_URL 'https://${NAS_PUBLIC_HOSTNAME}'
   upsert_env SP_ANNOTATIONS_DIR '${NAS_APP_DIR}/annotations'
   upsert_env SP_GENOMES_DIR '${NAS_APP_DIR}/genomes'
   upsert_env SP_GO_ANNOTATIONS_DIR '${NAS_APP_DIR}/go_annotations'
@@ -381,6 +387,10 @@ nssh "
   upsert_env SP_ORTHO_DEFER_SEQUENCE '${NAS_ORTHO_DEFER_SEQUENCE}'
   upsert_env SP_FOOTER_DEFER_SEQUENCE '${NAS_FOOTER_DEFER_SEQUENCE}'
   upsert_env SP_DEFER_FEATURE_GC '${NAS_DEFER_FEATURE_GC}'
+  upsert_env SP_HOMO_RENDER_CHUNK_SIZE '${NAS_HOMO_RENDER_CHUNK_SIZE}'
+  upsert_env SP_HOMO_AUTO_RENDER_DELAY_MS '${NAS_HOMO_AUTO_RENDER_DELAY_MS}'
+  upsert_env SP_ISOFORM_RENDER_BATCH_SIZE '${NAS_ISOFORM_RENDER_BATCH_SIZE}'
+  upsert_env SP_ISOFORM_RENDER_BATCH_DELAY_MS '${NAS_ISOFORM_RENDER_BATCH_DELAY_MS}'
   upsert_env SP_ORTHO_RENDER_CHUNK_SIZE '${NAS_ORTHO_RENDER_CHUNK_SIZE}'
   upsert_env SP_ORTHO_AUTO_RENDER_MORE '${NAS_ORTHO_AUTO_RENDER_MORE}'
   upsert_env SP_ORTHO_AUTO_RENDER_DELAY_MS '${NAS_ORTHO_AUTO_RENDER_DELAY_MS}'
@@ -395,6 +405,10 @@ nssh "
     'SP_ORTHO_DEFER_SEQUENCE=${NAS_ORTHO_DEFER_SEQUENCE}' \
     'SP_FOOTER_DEFER_SEQUENCE=${NAS_FOOTER_DEFER_SEQUENCE}' \
     'SP_DEFER_FEATURE_GC=${NAS_DEFER_FEATURE_GC}' \
+    'SP_HOMO_RENDER_CHUNK_SIZE=${NAS_HOMO_RENDER_CHUNK_SIZE}' \
+    'SP_HOMO_AUTO_RENDER_DELAY_MS=${NAS_HOMO_AUTO_RENDER_DELAY_MS}' \
+    'SP_ISOFORM_RENDER_BATCH_SIZE=${NAS_ISOFORM_RENDER_BATCH_SIZE}' \
+    'SP_ISOFORM_RENDER_BATCH_DELAY_MS=${NAS_ISOFORM_RENDER_BATCH_DELAY_MS}' \
     'SP_ORTHO_RENDER_CHUNK_SIZE=${NAS_ORTHO_RENDER_CHUNK_SIZE}' \
     'SP_ORTHO_AUTO_RENDER_MORE=${NAS_ORTHO_AUTO_RENDER_MORE}' \
     'SP_ORTHO_AUTO_RENDER_DELAY_MS=${NAS_ORTHO_AUTO_RENDER_DELAY_MS}' \
@@ -402,7 +416,7 @@ nssh "
     'SP_ORTHO_INITIAL_VISIBLE=${NAS_ORTHO_INITIAL_VISIBLE}' \
     'SP_ORTHO_SERVER_RENDER_NUDGE=${NAS_ORTHO_SERVER_RENDER_NUDGE}'; do
     grep -Fqx "\$expected_profile" .env || {
-      echo "ERROR: no se pudo fijar el perfil eager: \$expected_profile" >&2
+      echo "ERROR: no se pudo fijar el perfil progresivo: \$expected_profile" >&2
       exit 1
     }
   done
@@ -486,6 +500,10 @@ nssh "
     'APP_ORTHO_DEFER_SEQUENCE=${NAS_ORTHO_DEFER_SEQUENCE}' \
     'APP_FOOTER_DEFER_SEQUENCE=${NAS_FOOTER_DEFER_SEQUENCE}' \
     'APP_DEFER_FEATURE_GC=${NAS_DEFER_FEATURE_GC}' \
+    'APP_HOMO_RENDER_CHUNK_SIZE=${NAS_HOMO_RENDER_CHUNK_SIZE}' \
+    'APP_HOMO_AUTO_RENDER_DELAY_MS=${NAS_HOMO_AUTO_RENDER_DELAY_MS}' \
+    'APP_ISOFORM_RENDER_BATCH_SIZE=${NAS_ISOFORM_RENDER_BATCH_SIZE}' \
+    'APP_ISOFORM_RENDER_BATCH_DELAY_MS=${NAS_ISOFORM_RENDER_BATCH_DELAY_MS}' \
     'APP_ORTHO_RENDER_CHUNK_SIZE=${NAS_ORTHO_RENDER_CHUNK_SIZE}' \
     'APP_ORTHO_AUTO_RENDER_MORE=${NAS_ORTHO_AUTO_RENDER_MORE}' \
     'APP_ORTHO_AUTO_RENDER_DELAY_MS=${NAS_ORTHO_AUTO_RENDER_DELAY_MS}' \
@@ -497,7 +515,7 @@ nssh "
       exit 1
     fi
   done
-  echo '  Perfil eager confirmado: chunk=64, auto=0, initial=64/64, nudge=0.'
+  echo '  Perfil progresivo confirmado: chunk=1, auto=1, initial=1/1, delay=120ms, nudge=0.'
 
   static_url='http://127.0.0.1:${CGV_NGINX_PORT}/cgv-static/'\"\$static_revision\"
   static_health_code=\$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \"\$static_url/healthz.txt\" 2>/dev/null || true)
@@ -535,9 +553,9 @@ nssh "
   ${REMOTE_DOCKER} ps --filter name=cgv-nginx --filter name=cgv-shinyproxy --filter name=cgv-background-report-worker --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 "
 
-# --- Paso 7: Lanzar Cloudflare tunnel ---
+# --- Paso 7: Supervisar Cloudflare tunnel ---
 echo ""
-echo "[7/7] Lanzando tunel Cloudflare (${TUNNEL_NAME})..."
+echo "[7/7] Supervisando tunel Cloudflare (${TUNNEL_NAME})..."
 nssh "
   set -e
   tunnel_config='/home/${NAS_USER}/.cloudflared/config.yml'
@@ -555,21 +573,19 @@ nssh "
     exit 1
   fi
 
-  rm -f ${NAS_PATH}/tunnel.log
-  nohup ${NAS_PATH}/cloudflared tunnel --protocol http2 run ${TUNNEL_NAME} > ${NAS_PATH}/tunnel.log 2>&1 &
-  echo \$! > ${NAS_PATH}/tunnel.pid
-  echo \"  Tunel PID: \$(cat ${NAS_PATH}/tunnel.pid)\"
+  NAS_USER='${NAS_USER}' NAS_PATH='${NAS_PATH}' TUNNEL_CONFIG=\"\$tunnel_config\" \
+    bash '${NAS_APP_DIR}/deploy/setup-nas-tunnel.sh' --install
 
   MAX=60; ELAPSED=0; PUBLIC_OK=0
   while [ \$ELAPSED -lt \$MAX ]; do
-    if ! kill -0 \$(cat ${NAS_PATH}/tunnel.pid) 2>/dev/null; then
+    if ! systemctl --user is-active --quiet cgv-cloudflared.service; then
       echo 'ERROR: el túnel se detuvo durante el arranque.' >&2
-      tail -30 ${NAS_PATH}/tunnel.log >&2
+      journalctl --user -u cgv-cloudflared.service -n 30 --no-pager >&2
       exit 1
     fi
-    public_code=\$(curl -sS -I -o /dev/null -w '%{http_code}' --max-time 10 https://cgev.mobilomics.org/ 2>/dev/null || true)
+    public_code=\$(curl -sS -I -o /dev/null -w '%{http_code}' --max-time 10 https://${NAS_PUBLIC_HOSTNAME}/ 2>/dev/null || true)
     if echo \"\$public_code\" | grep -Eq '^(200|301|302)$'; then
-      echo \"  cgev.mobilomics.org responde HTTP \$public_code después de \${ELAPSED}s\"
+      echo \"  ${NAS_PUBLIC_HOSTNAME} responde HTTP \$public_code después de \${ELAPSED}s\"
       PUBLIC_OK=1
       break
     fi
@@ -577,8 +593,8 @@ nssh "
     ELAPSED=\$((ELAPSED + 5))
   done
   if [ \"\$PUBLIC_OK\" != '1' ]; then
-    echo \"ERROR: cgev.mobilomics.org no quedó accesible (último HTTP: \${public_code:-000}).\" >&2
-    tail -50 ${NAS_PATH}/tunnel.log >&2
+    echo \"ERROR: ${NAS_PUBLIC_HOSTNAME} no quedó accesible (último HTTP: \${public_code:-000}).\" >&2
+    journalctl --user -u cgv-cloudflared.service -n 50 --no-pager >&2
     exit 1
   fi
 "
@@ -589,7 +605,7 @@ echo "  ShinyProxy Deploy completado!"
 echo ""
 echo "  ShinyProxy:  http://127.0.0.1:8080 (interno del NAS)"
 echo "  Proxy web:   http://${NAS_HOST}:${CGV_NGINX_PORT}"
-echo "  Publico:     https://cgev.mobilomics.org"
+echo "  Publico:     https://${NAS_PUBLIC_HOSTNAME}"
 echo ""
 echo "  Login:       desactivado (acceso directo, limitado por capacidad)"
 echo ""

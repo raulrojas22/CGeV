@@ -24,10 +24,10 @@ default, to avoid conflicts with NAS/system port 80).
 ./deploy/deploy-nas-shinyproxy.sh
 ```
 
-El deploy normal deja la telemetría desactivada y fija el perfil de render
-inmediato: composición/GC en la primera pasada, sin cola progresiva ni segundo
-`render nudge`, con hasta 64 tarjetas primarias registradas juntas. Para una
-captura diagnóstica puntual se puede usar:
+El deploy normal deja la telemetría desactivada y presenta tarjetas completas
+progresivamente: una por lote, intervalo de 120 ms y composición/GC en la
+primera pasada. Comparte el perfil de Colors, incluidas las isoformas, y no
+activa un segundo `render nudge`. Para una captura diagnóstica puntual:
 
 ```bash
 NAS_PERF_TIMING=1 PERF_RUN_LABEL=medicion_nas_01 ./deploy/deploy-nas-shinyproxy.sh
@@ -38,6 +38,37 @@ After the first deploy, Cloudflare Tunnel should point to:
 ```text
 http://localhost:18080
 ```
+
+El sitio del NAS es `https://cgvapp.com` (`NAS_PUBLIC_HOSTNAME` permite cambiarlo).
+El despliegue valida ese origen y lo fija como base de los reportes compartidos.
+Conserva el `.env` remoto, los índices de `data/` y los videos de
+`www/screencasts/`. Antes de construir exige los 47 videos del manifiesto
+`deploy/guide-videos.sha256`, con sus hashes correctos y sin archivos adicionales;
+también comprueba los hashes dentro de la imagen. Si falta un video, hay que
+reprovisionarlo desde el conjunto aprobado antes de desplegar. No se incluye
+la carpeta de videos en Git. La construcción y el prewarm preceden al corte
+de los contenedores anteriores; el túnel permanece activo.
+
+### Supervisión del túnel en TrueNAS
+
+`deploy/setup-nas-tunnel.sh --install`, ejecutado en el NAS como
+`truenas_admin`, instala `cgv-cloudflared.service` en systemd de usuario con
+`Restart=always` y habilita linger. Solo reemplaza el conector manual de CGeV
+después de comprobar `/ready` en `127.0.0.1:20243`. No modifica otros túneles.
+Guarda el instalador en `/mnt/Datos4raro/cgv/services/` y registra mediante
+`midclt` una tarea POSTINIT llamada `CGeV cloudflared supervision`; esta restaura
+la unidad de usuario al arrancar TrueNAS. El conector corre sin privilegios.
+
+```bash
+systemctl --user status cgv-cloudflared.service
+journalctl --user -u cgv-cloudflared.service -n 50 --no-pager
+curl -fsS http://127.0.0.1:20243/ready
+```
+
+El despliegue puede invocar el instalador repetidamente sin crear otra tarea
+POSTINIT ni otro conector. La recuperación tras terminar el proceso se verificó
+en el NAS; un reinicio completo del NAS sigue siendo una comprobación operativa
+pendiente. ShinyProxy está fijado al digest de la imagen 3.2.4 comprobada en el NAS.
 
 ## Smoke Test
 
@@ -70,8 +101,8 @@ without allocating a ShinyProxy application container. The report route:
 - leaves revocation metadata outside the public report directory.
 
 The lightweight `report-cleaner` service runs every 15 minutes against the
-shared cache. `CGV_PUBLIC_BASE_URL` defaults to `https://cgev.mobilomics.org` in the
-report worker and can be overridden when deploying another public origin.
+shared cache. The NAS deploy sets `CGV_PUBLIC_BASE_URL` to
+`https://${NAS_PUBLIC_HOSTNAME}` for links published by the report worker.
 
 ## Background report email worker
 
