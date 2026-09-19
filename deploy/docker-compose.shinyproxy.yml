@@ -1,6 +1,6 @@
 services:
   shinyproxy:
-    image: docker.io/openanalytics/shinyproxy:3.1.1
+    image: docker.io/openanalytics/shinyproxy:3.2.4@sha256:0c2fa688f4622401a8433f2e496f5c156b595de9fd1c95c8c98c0523d1060c96
     container_name: cgv-shinyproxy
     restart: unless-stopped
     user: "0:0"

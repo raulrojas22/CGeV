@@ -32,8 +32,9 @@ CHECK OK: no se realizaron cambios en Colors.
 La línea `Sesión` informa además la telemetría efectiva (`perf=0` o `perf=1`)
 que recibió el contenedor público. El check compara ese valor con el
 `application.yml` activo; no lo deduce del valor por defecto del comando local.
-La línea `Eager` verifica también que la sesión recibió composición inmediata,
-sin segunda renderización, sin lotes automáticos y con 64 tarjetas iniciales.
+La línea `Progressive` verifica también la información completa en cada tarjeta,
+con lotes de una tarjeta e intervalos de 120 ms, incluidas las isoformas.
+Las tarjetas aparecen en cuanto están listas y no difieren composición ni GC.
 
 El script aborta si detecta cualquiera de estas condiciones:
 
@@ -95,7 +96,7 @@ COLORS_PERF_TIMING=0 ./deploy/deploy-colors-shinyproxy.sh
 4. Sincroniza solamente código de aplicación, excluyendo secretos, datos,
    cachés y archivos de trabajo locales. La configuración de ShinyProxy se
    respalda y recibe las variables permitidas para reportes, el semáforo global
-   de LASTZ y el perfil de render eager validado.
+   de LASTZ y el perfil de render progresivo validado.
 5. Construye una imagen inmutable como:
 
    ```text
