@@ -11889,7 +11889,7 @@
                 }
                 app_perf_mark(NULL, sprintf("lastz_blocks_cache_miss pid=%s", as.character(pid)), "ORTHO_LASTZ")
                 tryCatch(
-                    promises::future_promise({
+                    lastz_future_promise({
                         qry_seq_result <- tryCatch({
                             seq_txt <- extract_locus_window_sequence(qry_ctx)
                             list(ok = TRUE, len = nchar(seq_txt), preview = substr(seq_txt, 1, 50))
