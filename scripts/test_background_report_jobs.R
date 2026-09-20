@@ -195,10 +195,10 @@ assert(grepl('COLORS_INLINE_FAST_SEQUENCE_PREFETCH="${COLORS_INLINE_FAST_SEQUENC
 assert(grepl('SP_INLINE_FAST_SEQUENCE_PREFETCH:${COLORS_INLINE_FAST_SEQUENCE_PREFETCH}', colors_deploy_text, fixed = TRUE), "Colors writes inline-prefetch tuning into ShinyProxy sessions")
 for (fixed_profile in c(
     'COLORS_ORTHO_SUSPEND_HIDDEN="1"',
-    'COLORS_HOMO_DEFER_SEQUENCE="0"',
-    'COLORS_ORTHO_DEFER_SEQUENCE="0"',
-    'COLORS_FOOTER_DEFER_SEQUENCE="0"',
-    'COLORS_DEFER_FEATURE_GC="0"',
+    'COLORS_HOMO_DEFER_SEQUENCE="${COLORS_HOMO_DEFER_SEQUENCE:-0}"',
+    'COLORS_ORTHO_DEFER_SEQUENCE="${COLORS_ORTHO_DEFER_SEQUENCE:-0}"',
+    'COLORS_FOOTER_DEFER_SEQUENCE="${COLORS_FOOTER_DEFER_SEQUENCE:-0}"',
+    'COLORS_DEFER_FEATURE_GC="${COLORS_DEFER_FEATURE_GC:-0}"',
     'COLORS_HOMO_RENDER_CHUNK_SIZE="1"',
     'COLORS_HOMO_AUTO_RENDER_DELAY_MS="120"',
     'COLORS_ORTHO_RENDER_CHUNK_SIZE="1"',
@@ -210,7 +210,7 @@ for (fixed_profile in c(
     'COLORS_ISOFORM_RENDER_BATCH_DELAY_MS="120"',
     'COLORS_ORTHO_SERVER_RENDER_NUDGE="0"'
 )) {
-    assert(grepl(fixed_profile, colors_deploy_text, fixed = TRUE), paste("Colors fixes progressive render profile:", fixed_profile))
+    assert(grepl(fixed_profile, colors_deploy_text, fixed = TRUE), paste("Colors preserves progressive defaults:", fixed_profile))
 }
 assert(!grepl('SP_HOMO_DEFER_SEQUENCE:', colors_deploy_text, fixed = TRUE), "Colors does not allow stale SP_* values to reactivate deferred sequence work")
 assert(grepl('falló la materialización del perfil progresivo en application.yml', colors_deploy_text, fixed = TRUE), "Colors validates progressive profile materialization")
