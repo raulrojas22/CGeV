@@ -37114,8 +37114,9 @@
             future_launch_t0 <- app_perf_now()
             app_perf_mark(perf_run, "worker_launch_start", "STRING")
             pending <- promises::future_promise({
-                string_resolve_and_fetch(query_payload, base_dir = ".")
-            }, seed = TRUE)
+                string_future_worker(query_payload, cache_snapshot, base_dir = ".")
+            }, seed = TRUE, globals = string_future_globals(query_payload),
+               packages = c("httr2", "magrittr"))
             assign(pending_key, pending, envir = pendingStringPromises)
             app_perf_mark_ms(perf_run, "worker_launch_ms", app_perf_elapsed_ms(future_launch_t0), "STRING")
         } else {
