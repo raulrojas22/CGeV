@@ -172,14 +172,18 @@ string_resolve_candidates <- function(taxid, candidates, base_dir = ".") {
         return(cached)
     }
 
-    mapped <- string_api_request(
-        path = "get_string_ids",
-        query = list(
-            identifiers = paste(candidates, collapse = "\r"),
-            species = as.character(as.integer(taxid))
+    # Only an unresolved get_string_ids batch treats HTTP 404 as no mapping.
+    mapped <- tryCatch(
+        string_api_request(
+            path = "get_string_ids",
+            query = list(
+                identifiers = paste(candidates, collapse = "\r"),
+                species = as.character(as.integer(taxid))
+            ),
+            has_header = FALSE,
+            seconds = 20
         ),
-        has_header = FALSE,
-        seconds = 20
+        httr2_http_404 = function(e) data.frame(stringsAsFactors = FALSE)
     )
     if (!is.data.frame(mapped) || nrow(mapped) == 0L) {
         for (candidate in candidates) {
