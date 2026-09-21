@@ -36528,6 +36528,35 @@
         )
     }
 
+    # Materialize only on a STRING request. Lifecycle observation only prunes;
+    # it must never parse annotations when plots are established or restored.
+    # The getter validates the current source synchronously on every request.
+    stringAnnotationState <- new_string_annotation_state()
+    string_annotation_source <- function(pid, ctx, d) {
+        ann <- tryCatch(
+            if (identical(ctx, "homo")) annotationPathsHomologous()[[pid]] else annotationPathsOrthologous()[[pid]],
+            error = function(e) ""
+        )
+        list(file_data = d$file_data, org_info = d$org_info, annotation_path = ann)
+    }
+    get_string_annotation_ids <- function(pid, ctx, d) {
+        stringAnnotationState$get(paste(ctx, pid, sep = ":"), string_annotation_source(pid, ctx, d))
+    }
+    observe({
+        live_keys <- character(0)
+        for (ctx in c("homo", "ortho")) {
+            ids <- if (identical(ctx, "homo")) activePlotIdsHomologous() else activePlotIdsOrthologous()
+            files <- if (identical(ctx, "homo")) fileDataHomologous() else fileDataOrthologous()
+            for (id in ids) {
+                pid <- as.character(id)
+                fd <- files[[pid]]
+                if (is.null(fd) || nrow(fd) == 0L) next
+                live_keys <- c(live_keys, paste(ctx, pid, sep = ":"))
+            }
+        }
+        stringAnnotationState$prune(live_keys)
+    })
+
     build_string_query_payload <- function(pid, ctx) {
         d <- get_chart_plot_data(pid, ctx)
         if (is.null(d$file_data) || nrow(d$file_data) == 0) {
@@ -36546,10 +36575,8 @@
         gene_title <- trimws(as.character(extract_title_field(titulo, "Gene") %||% "Gene"))
         org_name <- as.character(d$org_info$name %||% "Organism")
 
-        types <- tolower(trimws(as.character(d$file_data$V3)))
-        gene_rows <- which(types == "gene")
-        gene_attr <- if (length(gene_rows) > 0) as.character(d$file_data$V9[gene_rows[1]]) else ""
-        gene_name <- tryCatch(extract_primary_gene_name(gene_attr), error = function(e) "")
+        annotation_ids <- get_string_annotation_ids(pid, ctx, d)
+        gene_name <- annotation_ids$gene_name
         if (is_invalid_str(gene_name)) {
             gene_name <- gene_title
         }
@@ -36596,53 +36623,28 @@
             tx
         }
 
-        extract_gff_ids_for_plot <- function(plot_id, ctx_name, plot_d = NULL) {
-            ids <- c()
-            tryCatch({
-                if (is.null(plot_d)) {
-                    plot_d <- get_chart_plot_data(as.character(plot_id), ctx_name)
-                }
-                if (!is.null(plot_d$file_data) && nrow(plot_d$file_data) > 0) {
-                    for (row_attr in as.character(plot_d$file_data$V9)) {
-                        pa <- tryCatch(parse_gff_attributes(row_attr), error = function(e) list())
-                        for (key in c("gene", "gene_id", "locus_tag", "name", "protein_id", "id")) {
-                            v <- pa[[key]][1]
-                            if (!is.null(v) && !is.na(v) && nzchar(trimws(v))) {
-                                clean_v <- trimws(v)
-                                clean_v2 <- sub("^(gene|rna|mrna|cds|transcript)[:-]", "", clean_v, ignore.case = TRUE)
-                                ids <- c(ids, clean_v, clean_v2)
-                            }
-                        }
-                        dbx_vals <- c(pa[["dbxref"]], pa[["db_xref"]])
-                        for (dbx in dbx_vals) {
-                            if (is.null(dbx) || is.na(dbx) || !nzchar(dbx)) next
-                            entries <- trimws(unlist(strsplit(as.character(dbx), ",", fixed = TRUE)))
-                            for (ent in entries) {
-                                if (!nzchar(ent)) next
-                                ids <- c(ids, ent)
-                                parts <- strsplit(ent, ":", fixed = TRUE)[[1]]
-                                if (length(parts) >= 2) {
-                                    ids <- c(ids, trimws(paste(parts[-1], collapse = ":")))
-                                }
-                            }
-                        }
-                    }
-                }
-            }, error = function(e) NULL)
-            unique(ids[nzchar(ids)])
-        }
-
         collect_screen_records <- function(ctx_name, ids, titles_map) {
             records <- list()
+            plots <- list()
+            sources <- list()
             for (i_id in ids %||% integer(0)) {
                 id_chr <- as.character(i_id)
                 plot_d <- tryCatch(get_chart_plot_data(id_chr, ctx_name), error = function(e) NULL)
                 if (is.null(plot_d) || is.null(plot_d$file_data) || nrow(plot_d$file_data) == 0L) next
+                plots[[id_chr]] <- plot_d
+                key <- paste(ctx_name, id_chr, sep = ":")
+                sources[[key]] <- string_annotation_source(id_chr, ctx_name, plot_d)
+            }
+            screen_ids <- stringAnnotationState$screen(sources)
+            for (i_id in ids %||% integer(0)) {
+                id_chr <- as.character(i_id)
+                plot_d <- plots[[id_chr]]
+                if (is.null(plot_d)) next
                 t_str <- tryCatch(titles_map[[id_chr]], error = function(e) "")
                 g_name <- trimws(as.character(extract_title_field(t_str, "Gene") %||% ""))
                 candidates <- c()
                 if (!is_invalid_str(g_name)) candidates <- c(candidates, g_name)
-                candidates <- c(candidates, extract_gff_ids_for_plot(id_chr, ctx_name, plot_d = plot_d))
+                candidates <- c(candidates, screen_ids[[paste(ctx_name, id_chr, sep = ":")]])
                 candidates <- unique(trimws(candidates))
                 candidates <- candidates[nzchar(candidates) & !is.na(candidates)]
                 if (length(candidates) == 0L) next
@@ -36669,41 +36671,8 @@
             gsub(";", "-", gene_name, fixed = TRUE),
             gsub(";", "", gene_name, fixed = TRUE)
         ))
-        tryCatch({
-            all_attrs_raw <- as.character(d$file_data$V9)
-            for (row_i in seq_along(all_attrs_raw)) {
-                parsed <- tryCatch(parse_gff_attributes(all_attrs_raw[row_i]), error = function(e) list())
-                pid_val <- parsed[["protein_id"]][1]
-                if (!is.null(pid_val) && !is.na(pid_val) && nzchar(trimws(pid_val))) {
-                    id_candidates <- c(id_candidates, trimws(pid_val))
-                }
-                dbx_vals <- c(parsed[["dbxref"]], parsed[["db_xref"]])
-                for (dbx in dbx_vals) {
-                    if (is.null(dbx) || is.na(dbx) || !nzchar(dbx)) next
-                    entries <- trimws(unlist(strsplit(as.character(dbx), ",", fixed = TRUE)))
-                    for (ent in entries) {
-                        parts <- strsplit(ent, ":", fixed = TRUE)[[1]]
-                        if (length(parts) >= 2) {
-                            id_candidates <- c(id_candidates, trimws(paste(parts[-1], collapse = ":")))
-                        }
-                        id_candidates <- c(id_candidates, trimws(ent))
-                    }
-                }
-                syn_vals <- c(parsed[["gene_synonym"]], parsed[["gene_synonyms"]], parsed[["synonym"]])
-                for (sv in syn_vals) {
-                    if (is.null(sv) || is.na(sv) || !nzchar(sv)) next
-                    syns <- trimws(unlist(strsplit(as.character(sv), ",", fixed = TRUE)))
-                    id_candidates <- c(id_candidates, syns[nzchar(syns)])
-                }
-                for (key in c("locus_tag", "name", "id")) {
-                    v <- parsed[[key]][1]
-                    if (!is.null(v) && !is.na(v) && nzchar(trimws(v))) {
-                        id_candidates <- c(id_candidates, trimws(v))
-                    }
-                }
-            }
-        }, error = function(e) NULL)
-        gene_id_fallback <- tryCatch(extract_primary_gene_id(gene_attr), error = function(e) "")
+        id_candidates <- c(id_candidates, annotation_ids$id_candidates)
+        gene_id_fallback <- annotation_ids$gene_id
         if (!is_invalid_str(gene_id_fallback)) {
             id_candidates <- c(id_candidates, gene_id_fallback)
         }
@@ -37105,7 +37074,10 @@
             )
         ) |> tagAppendAttributes(class = "string-network-modal"))
 
+        perf_run <- app_perf_new_run("STRING")
+        payload_t0 <- if (isTRUE(app_perf_enabled())) app_perf_now() else NULL
         query_payload <- build_string_query_payload(pid, ctx)
+        if (!is.null(payload_t0)) app_perf_mark_ms(perf_run, "payload_prepare_ms", app_perf_elapsed_ms(payload_t0), "STRING")
         if (!is.null(query_payload$error_widget)) {
             stringNetworkWidget(query_payload$error_widget)
             return(invisible(NULL))
@@ -37113,7 +37085,6 @@
 
         req_id <- paste0("string_", as.integer(Sys.time()), "_", sample.int(1000000L, 1))
         stringNetworkRequestState$id <- req_id
-        perf_run <- app_perf_new_run("STRING")
         app_perf_mark(perf_run, "snapshot_ready", "STRING")
 
         cache_t0 <- app_perf_now()
