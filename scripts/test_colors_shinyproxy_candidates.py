@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -444,3 +446,86 @@ for invalid_text, limit in [
         raise AssertionError("Ambiguous/invalid memory limit was accepted")
 
 print("Colors ShinyProxy candidates: OK (including effective memory migration)")
+
+# Exercise only local settings/validation from the actual deploy script. Stop
+# before any dependency checks, credentials, SSH, containers or deployment.
+deploy_text = (ROOT / "deploy/deploy-colors-shinyproxy.sh").read_text()
+deploy_prefix = deploy_text.split("for command_name in curl git ssh rsync shasum python3; do", 1)[0]
+deferrals = ("HOMO_DEFER_SEQUENCE", "ORTHO_DEFER_SEQUENCE", "FOOTER_DEFER_SEQUENCE", "DEFER_FEATURE_GC")
+settings = {
+    "FUTURE_WORKERS": "2", "FUTURE_MODE": "multisession", "LASTZ_WORKERS": "1",
+    "ANALYTICS_PHASE2_DELAY_MS": "900", "ANALYTICS_PHASE3_DELAY_MS": "2200",
+}
+assert set(MODULE.RUNTIME_ENV_PATTERNS) == {"APP_" + key for key in settings}
+assert "${COLORS_RUNTIME_ARGS}" in deploy_text[deploy_text.index("python3 -B scripts/build_colors_shinyproxy_candidates.py"):]
+
+def deploy_settings(overrides):
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("COLORS_", "APP_", "SP_", "PERF_", "REBUILD_", "BACKGROUND_", "PUBLIC_"))}
+    environment.update(overrides)
+    output = '\nprintf "%s\\n" "$COLORS_RUNTIME_ARGS"'
+    output += "".join(f' "${{COLORS_{key}}}"' for key in deferrals)
+    output += ' "$COLORS_INLINE_FAST_SEQUENCE_PREFETCH"\n'
+    return subprocess.run(["bash", "-c", deploy_prefix + output], cwd=ROOT,
+                          env=environment, text=True, capture_output=True)
+
+baseline = deploy_settings({})
+assert baseline.returncode == 0, baseline.stderr
+assert baseline.stdout.splitlines() == ["", "0", "0", "0", "0", "1"]
+overrides = {"COLORS_" + key: value for key, value in settings.items()}
+overrides.update({"COLORS_" + key: "1" for key in deferrals})
+overrides.update(COLORS_INLINE_FAST_SEQUENCE_PREFETCH="0", COLORS_SECRET_TOKEN="do-not-forward")
+configured = deploy_settings(overrides)
+assert configured.returncode == 0, configured.stderr
+lines = configured.stdout.splitlines()
+assert lines[1:] == ["1", "1", "1", "1", "0"]
+cli_args = shlex.split(lines[0])
+assert cli_args[::2] == ["--app-env"] * len(settings)
+expected_settings = ["APP_" + key + "=" + value for key, value in settings.items()]
+assert cli_args[1::2] == expected_settings
+
+with tempfile.TemporaryDirectory() as folder:
+    folder = Path(folder)
+    app, compose = folder / "application.yml", folder / "compose.yml"
+    app_out, compose_out = folder / "application.out.yml", folder / "compose.out.yml"
+    app.write_text(APPLICATION)
+    compose.write_text(COMPOSE)
+    subprocess.run([sys.executable, "-B", str(HELPER), "--application", str(app),
+                    "--application-output", str(app_out), "--compose", str(compose),
+                    "--compose-output", str(compose_out), "--orthology-policy", "0", *cli_args], check=True)
+    result = app_out.read_text()
+    for key, value in settings.items():
+        assert result.count(f'        APP_{key}: "{value}"') == 1
+    assert "SECRET_TOKEN" not in result
+    assert compose_out.read_text() == compose_candidate
+    assert app.read_text() == APPLICATION
+    assert MODULE.build_application_candidate(result, runtime_env=expected_settings) == result
+    # Omitting an override preserves existing server-owned values verbatim.
+    assert MODULE.build_application_candidate(result) == result
+
+for bad in (["APP_SECRET_TOKEN=x"], ["APP_FUTURE_WORKERS=0"],
+            ["APP_FUTURE_MODE=multicore"], ["APP_LASTZ_WORKERS=1;false"],
+            ["APP_ANALYTICS_PHASE2_DELAY_MS=-1"], ["APP_ANALYTICS_PHASE3_DELAY_MS="],
+            ["APP_LASTZ_WORKERS=1", "APP_LASTZ_WORKERS=2"]):
+    try:
+        MODULE.build_application_candidate(APPLICATION, runtime_env=bad)
+    except MODULE.CandidateError:
+        pass
+    else:
+        raise AssertionError("Invalid/duplicate/non-allowlisted runtime setting accepted")
+for key, value in (("FUTURE_WORKERS", "0"), ("FUTURE_MODE", "multicore"),
+                   ("LASTZ_WORKERS", "1;false"), ("ANALYTICS_PHASE2_DELAY_MS", "-1"),
+                   ("ANALYTICS_PHASE3_DELAY_MS", "$(false)"), ("HOMO_DEFER_SEQUENCE", "2")):
+    assert deploy_settings({"COLORS_" + key: value}).returncode != 0
+# Optional entries still inherit the builder's duplicate/nested-key safeguards.
+for bad_app in (APPLICATION.replace('        KEEP_APPLICATION:',
+                '        APP_LASTZ_WORKERS: "1"\n        APP_LASTZ_WORKERS: "2"\n        KEEP_APPLICATION:'),
+                APPLICATION.replace('        KEEP_APPLICATION:',
+                '        APP_LASTZ_WORKERS:\n          nested: 1\n        KEEP_APPLICATION:')):
+    try:
+        MODULE.build_application_candidate(bad_app, runtime_env=["APP_LASTZ_WORKERS=1"])
+    except MODULE.CandidateError:
+        pass
+    else:
+        raise AssertionError("Ambiguous runtime mapping accepted")
+print("Colors explicit runtime pipeline/defaults/allowlist: OK (no deployment)")

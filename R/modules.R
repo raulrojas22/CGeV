@@ -1,5 +1,51 @@
 # R/modules.R
 
+# Transport the existing prefetch body as language, never its module closure.
+# Helpers are loaded locally by the worker. File handles are reopened there;
+# only the memo tables used by this job and their configured limits are sent.
+sequence_prefetch_future_worker <- function(prefetch_args, prefetch_code, prefetch_state) {
+    worker_env <- new.env(parent = baseenv())
+    sys.source(file.path("R", "utils.R"), envir = worker_env)
+    list2env(prefetch_state, envir = worker_env)
+    worker_env$fn_extract_seq <- worker_env$extract_sequence_from_fasta
+    worker_env$fn_fetch_gene <- worker_env$fetch_gene_data_sync
+    worker_env$fn_get_neighbor <- worker_env$get_neighbor_context_for_target
+    eval(prefetch_code, envir = list2env(prefetch_args, parent = worker_env))
+}
+environment(sequence_prefetch_future_worker) <- baseenv()
+
+sequence_prefetch_future_globals <- function(run, kind = c("homo", "ortho")) {
+    kind <- match.arg(kind)
+    fields <- c("local_genome", "local_gs_seqid", "local_gs_start", "local_gs_end",
+                "local_gs_ok", "local_chr", "local_tx_coords", "local_tx_label",
+                "local_exon_ranges", "local_tx_strand", "local_need_sequence")
+    fields <- c(fields, if (kind == "homo") "local_need_gc_span" else
+        c("local_annotation", "local_target_gene", "local_need_neighbor"))
+    args <- mget(fields, envir = environment(run), inherits = FALSE)
+    state_names <- c("annotation_memory_cache_limits", ".cache_access_counter")
+    if (isTRUE(args$local_need_sequence) ||
+        (isTRUE(args$local_gs_ok) && (kind == "ortho" || isTRUE(args$local_need_gc_span)))) {
+        state_names <- c(state_names, ".seq_extract_cache", if (is_twobit_file(args$local_genome))
+            c(".twobit_seqinfo_cache", ".twobit_native_index_cache") else
+            c(".fasta_fallback_seq_cache", ".fasta_header_cache", ".fasta_seqnames_cache",
+              ".fasta_resolved_seqname_cache"))
+    }
+    if (isTRUE(args$local_need_sequence)) {
+        state_names <- c(state_names, ".spliced_seq_cache", ".transcript_composition_cache")
+    }
+    if (isTRUE(args$local_need_neighbor)) {
+        state_names <- c(state_names, ".neighbor_context_cache", ".gff_gene_light_index_cache",
+            ".gff_genes_chr_index_cache", ".gff_genes_table_cache",
+            ".gff_autocomplete_cache_validation", ".annotation_disk_cache_maintenance")
+    }
+    list(
+        sequence_prefetch_future_worker = sequence_prefetch_future_worker,
+        prefetch_args = args,
+        prefetch_code = body(utils::removeSource(run)),
+        prefetch_state = mget(state_names, envir = environment(fetch_gene_data_sync), inherits = FALSE)
+    )
+}
+
 # Plot module UI function (compartida por homólogos y ortólogos)
 plotUIModule <- function(id) {
     ns <- NS(id)
@@ -3248,8 +3294,10 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                         )
                     } else {
                         promises::future_promise(
-                            run_sequence_prefetch(),
-                            seed = FALSE
+                            sequence_prefetch_future_worker(prefetch_args, prefetch_code, prefetch_state),
+                            seed = FALSE,
+                            globals = sequence_prefetch_future_globals(run_sequence_prefetch, "homo"),
+                            packages = character()
                         ) %...>% (function(result) {
                             apply_sequence_prefetch(result, "async")
                         }) %...!% (function(err) {
@@ -4073,8 +4121,10 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                 } else {
                     app_perf_mark(module_perf, "async prefetch launch", "ORTHO_MOD")
                     promises::future_promise(
-                        run_prefetch_payload(),
-                        seed = FALSE
+                        sequence_prefetch_future_worker(prefetch_args, prefetch_code, prefetch_state),
+                        seed = FALSE,
+                        globals = sequence_prefetch_future_globals(run_prefetch_payload, "ortho"),
+                        packages = character()
                     ) %...>% (function(result) {
                         apply_prefetch_payload(result, "async")
                     }) %...!% (function(err) {

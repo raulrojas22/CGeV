@@ -172,14 +172,18 @@ string_resolve_candidates <- function(taxid, candidates, base_dir = ".") {
         return(cached)
     }
 
-    mapped <- string_api_request(
-        path = "get_string_ids",
-        query = list(
-            identifiers = paste(candidates, collapse = "\r"),
-            species = as.character(as.integer(taxid))
+    # Only an unresolved get_string_ids batch treats HTTP 404 as no mapping.
+    mapped <- tryCatch(
+        string_api_request(
+            path = "get_string_ids",
+            query = list(
+                identifiers = paste(candidates, collapse = "\r"),
+                species = as.character(as.integer(taxid))
+            ),
+            has_header = FALSE,
+            seconds = 20
         ),
-        has_header = FALSE,
-        seconds = 20
+        httr2_http_404 = function(e) data.frame(stringsAsFactors = FALSE)
     )
     if (!is.data.frame(mapped) || nrow(mapped) == 0L) {
         for (candidate in candidates) {
@@ -339,6 +343,32 @@ string_resolve_and_fetch <- function(snapshot, base_dir = ".") {
         ok = TRUE,
         cache_hit = FALSE,
         payload = string_apply_display_roles(payload, snapshot, base_dir = base_dir)
+    )
+}
+
+# Load existing implementations in the worker, without serializing lib_env.
+# Only the two STRING memo caches cross the boundary; their empty parents do
+# not link to application state. Disk keys, TTLs and HTTP handling stay intact.
+string_future_worker <- function(snapshot, cache_snapshot, base_dir = ".") {
+    worker_env <- new.env(parent = baseenv())
+    sys.source(file.path("R", "utils.R"), envir = worker_env)
+    sys.source(file.path("R", "string_cache.R"), envir = worker_env)
+    sys.source(file.path("R", "string_worker.R"), envir = worker_env)
+    worker_env$`%>%` <- magrittr::`%>%`
+    worker_env$.string_resolution_memory_cache <- cache_snapshot$resolution
+    worker_env$.string_network_memory_cache <- cache_snapshot$network
+    worker_env$string_resolve_and_fetch(snapshot, base_dir = base_dir)
+}
+environment(string_future_worker) <- baseenv()
+
+string_future_globals <- function(snapshot) {
+    list(
+        string_future_worker = string_future_worker,
+        query_payload = snapshot,
+        cache_snapshot = list(
+            resolution = .string_resolution_memory_cache,
+            network = .string_network_memory_cache
+        )
     )
 }
 

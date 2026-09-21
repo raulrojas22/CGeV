@@ -76,6 +76,32 @@ stopifnot(identical(roles_a[["9606.TARGET"]], "target"))
 stopifnot(identical(roles_a[["9606.PLTA"]], "plotted"))
 stopifnot(identical(roles_a[["9606.OTHER"]], "neighbor"))
 
+# Compare the complete payload (nodes, labels, roles, preferred names and IDs),
+# ignoring only the timestamp written on each role application.
+without_role_time <- function(payload) {
+    payload$role_applied_at <- NULL
+    payload
+}
+stopifnot(identical(
+    without_role_time(string_apply_display_roles(res_a$payload, snapshot_a, tmp, FALSE)),
+    without_role_time(string_apply_display_roles(res_a$payload, snapshot_a, tmp, TRUE))
+))
+
+# The pending-promise key excludes screen_variants. A second callback can join
+# the first worker with an alias that worker never resolved. This is the PR1
+# stop-condition counterexample: keep resolution enabled in that callback.
+joined_snapshot <- snapshot_a
+joined_snapshot$screen_variants <- "other_alias"
+joined_without_io <- string_apply_display_roles(res_a$payload, joined_snapshot, tmp, FALSE)
+joined_with_io <- string_apply_display_roles(res_a$payload, joined_snapshot, tmp, TRUE)
+stopifnot(identical(joined_without_io$nodes$id, joined_with_io$nodes$id),
+          identical(joined_without_io$nodes$label, joined_with_io$nodes$label),
+          identical(joined_without_io$preferred_name, joined_with_io$preferred_name))
+role_for <- function(payload, id) payload$nodes$role[match(id, payload$nodes$id)]
+stopifnot(identical(role_for(joined_without_io, "9606.OTHER"), "neighbor"),
+          identical(role_for(joined_with_io, "9606.OTHER"), "plotted"))
+cat("resolve_missing=FALSE counterexample: joined callback changes OTHER role plotted -> neighbor\n")
+
 snapshot_b <- snapshot_a
 snapshot_b$screen_variants <- c("other_alias")
 res_b <- string_resolve_and_fetch(snapshot_b, base_dir = tmp)

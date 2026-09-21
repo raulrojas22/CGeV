@@ -7519,6 +7519,14 @@
         )
     }
 
+    # This search only needs the null helper and namespaced httr2 calls.
+    # Do not export the enclosing server/session environment to its Future.
+    environment(search_papers_epmc) <- local({
+        null_helper <- `%||%`
+        environment(null_helper) <- baseenv()
+        list2env(list(`%||%` = null_helper), parent = baseenv())
+    })
+
     build_plot_card_footer <- function(output_id) {
         div(
             class = "plot-card-footer",
@@ -9696,7 +9704,15 @@
                     page_size = page_size,
                     sort_by = sort_by
                 )
-            }) %...>% (function(result) {
+            }, globals = list(
+                search_papers_epmc = search_papers_epmc,
+                gene_names = gene_names,
+                organism_str = organism_str,
+                org_aliases = org_aliases,
+                page = page,
+                page_size = page_size,
+                sort_by = sort_by
+            ), packages = "httr2") %...>% (function(result) {
                 result$request_id <- request_id
                 result$gene <- gene_str
                 result$organism <- organism_str
@@ -11889,7 +11905,7 @@
                 }
                 app_perf_mark(NULL, sprintf("lastz_blocks_cache_miss pid=%s", as.character(pid)), "ORTHO_LASTZ")
                 tryCatch(
-                    promises::future_promise({
+                    lastz_future_promise({
                         qry_seq_result <- tryCatch({
                             seq_txt <- extract_locus_window_sequence(qry_ctx)
                             list(ok = TRUE, len = nchar(seq_txt), preview = substr(seq_txt, 1, 50))
@@ -37114,8 +37130,9 @@
             future_launch_t0 <- app_perf_now()
             app_perf_mark(perf_run, "worker_launch_start", "STRING")
             pending <- promises::future_promise({
-                string_resolve_and_fetch(query_payload, base_dir = ".")
-            }, seed = TRUE)
+                string_future_worker(query_payload, cache_snapshot, base_dir = ".")
+            }, seed = TRUE, globals = string_future_globals(query_payload),
+               packages = c("httr2", "magrittr"))
             assign(pending_key, pending, envir = pendingStringPromises)
             app_perf_mark_ms(perf_run, "worker_launch_ms", app_perf_elapsed_ms(future_launch_t0), "STRING")
         } else {

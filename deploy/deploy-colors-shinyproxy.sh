@@ -20,14 +20,13 @@ COLORS_CONTAINER_MEMORY="${COLORS_CONTAINER_MEMORY:-5g}"
 BACKGROUND_REPORT_MEMORY="${BACKGROUND_REPORT_MEMORY:-4g}"
 APP_LASTZ_GLOBAL_WORKERS="${APP_LASTZ_GLOBAL_WORKERS:-2}"
 COLORS_INLINE_FAST_SEQUENCE_PREFETCH="${COLORS_INLINE_FAST_SEQUENCE_PREFETCH:-1}"
-# Colors intentionally uses one fixed progressive rendering profile. These values are
-# materialized as literals below so stale SP_* or server-owned values cannot
-# silently reactivate bulk card rendering.
+# Keep the existing progressive defaults. Explicit COLORS_* deferral overrides
+# are materialized as literals so stale SP_* values cannot override them.
 COLORS_ORTHO_SUSPEND_HIDDEN="1"
-COLORS_HOMO_DEFER_SEQUENCE="0"
-COLORS_ORTHO_DEFER_SEQUENCE="0"
-COLORS_FOOTER_DEFER_SEQUENCE="0"
-COLORS_DEFER_FEATURE_GC="0"
+COLORS_HOMO_DEFER_SEQUENCE="${COLORS_HOMO_DEFER_SEQUENCE:-0}"
+COLORS_ORTHO_DEFER_SEQUENCE="${COLORS_ORTHO_DEFER_SEQUENCE:-0}"
+COLORS_FOOTER_DEFER_SEQUENCE="${COLORS_FOOTER_DEFER_SEQUENCE:-0}"
+COLORS_DEFER_FEATURE_GC="${COLORS_DEFER_FEATURE_GC:-0}"
 COLORS_HOMO_RENDER_CHUNK_SIZE="1"
 COLORS_HOMO_AUTO_RENDER_DELAY_MS="120"
 COLORS_ORTHO_RENDER_CHUNK_SIZE="1"
@@ -78,7 +77,14 @@ Variables opcionales:
   COLORS_PERF_TIMING=1  Activa una captura de telemetría controlada (por defecto: 0).
   PERF_RUN_LABEL=antes_colors_01  Etiqueta usada cuando COLORS_PERF_TIMING=1.
 
-Perfil de render progresivo fijo en Colors:
+Overrides opcionales (sin default nuevo; omitir conserva el valor server-owned):
+  COLORS_FUTURE_WORKERS, COLORS_FUTURE_MODE, COLORS_LASTZ_WORKERS
+  COLORS_ANALYTICS_PHASE2_DELAY_MS, COLORS_ANALYTICS_PHASE3_DELAY_MS
+Deferral opcional (0 por defecto; 1 para diferir):
+  COLORS_HOMO_DEFER_SEQUENCE, COLORS_ORTHO_DEFER_SEQUENCE
+  COLORS_FOOTER_DEFER_SEQUENCE, COLORS_DEFER_FEATURE_GC
+
+Perfil de render progresivo por defecto en Colors:
   hidden=1, homo-seq=0, ortho-seq=0, footer-seq=0, gc=0,
   homo/ortho chunk=1, auto-render=1, auto-delay=120ms,
   homo/ortho-initial=1, isoform batch=1/120ms,
@@ -123,6 +129,23 @@ done
   die "El perfil progresivo de Colors exige delays de 120 ms"
 [[ "$COLORS_HOMO_RENDER_CHUNK_SIZE" == "1" && "$COLORS_ORTHO_RENDER_CHUNK_SIZE" == "1" && "$COLORS_HOMO_INITIAL_VISIBLE" == "1" && "$COLORS_ORTHO_INITIAL_VISIBLE" == "1" && "$COLORS_ISOFORM_RENDER_BATCH_SIZE" == "1" ]] || \
   die "El perfil progresivo de Colors exige lotes e initial-visible de 1"
+# Only these explicit settings can enter the remote builder command. Validate
+# before shell interpolation; no host environment or secrets are forwarded.
+COLORS_RUNTIME_ARGS=""
+for tuning_key in FUTURE_WORKERS FUTURE_MODE LASTZ_WORKERS ANALYTICS_PHASE2_DELAY_MS ANALYTICS_PHASE3_DELAY_MS; do
+  tuning_name="COLORS_${tuning_key}"
+  tuning_value="${!tuning_name:-}"
+  [[ -n "$tuning_value" ]] || continue
+  case "$tuning_key" in
+    FUTURE_MODE)
+      [[ "$tuning_value" == "sequential" || "$tuning_value" == "multisession" ]] || die "${tuning_name} no válido" ;;
+    FUTURE_WORKERS|LASTZ_WORKERS)
+      [[ "$tuning_value" =~ ^[1-9][0-9]*$ ]] || die "${tuning_name} debe ser entero positivo" ;;
+    ANALYTICS_PHASE2_DELAY_MS|ANALYTICS_PHASE3_DELAY_MS)
+      [[ "$tuning_value" =~ ^[0-9]+$ ]] || die "${tuning_name} debe ser entero no negativo" ;;
+  esac
+  COLORS_RUNTIME_ARGS+=" --app-env 'APP_${tuning_key}=${tuning_value}'"
+done
 [[ "$PERF_RUN_LABEL" =~ ^[A-Za-z0-9._-]+$ ]] || \
   die "PERF_RUN_LABEL solo puede contener letras, numeros, punto, guion y guion bajo"
 [[ "$COLORS_CONTAINER_MEMORY" =~ ^[1-9][0-9]*[mMgG]$ ]] || \
@@ -543,7 +566,7 @@ rssh "set -e
   fi
   python3 -B scripts/build_colors_shinyproxy_candidates.py \
     --application '${APP_DIR}/shinyproxy/application.yml' \
-    --container-memory-limit '${COLORS_CONTAINER_MEMORY}' \
+    --container-memory-limit '${COLORS_CONTAINER_MEMORY}' ${COLORS_RUNTIME_ARGS} \
     --application-output '${COLORS_APPLICATION_CANDIDATE}' \
     --compose '${COMPOSE_FILE}' \
     --compose-output '${COLORS_COMPOSE_CANDIDATE}' \

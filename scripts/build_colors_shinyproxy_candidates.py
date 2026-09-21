@@ -27,6 +27,29 @@ COMPOSE_VALUES = (
     ("APP_ASSET_VERSION", '"${APP_ASSET_VERSION:-}"'),
     ("APP_STATIC_BASE_URL", '"${APP_STATIC_BASE_URL:-}"'),
 )
+# Optional, non-secret runtime settings. Missing settings leave server values intact.
+RUNTIME_ENV_PATTERNS = {
+    "APP_FUTURE_WORKERS": r"[1-9][0-9]*",
+    "APP_FUTURE_MODE": r"(?:sequential|multisession)",
+    "APP_LASTZ_WORKERS": r"[1-9][0-9]*",
+    "APP_ANALYTICS_PHASE2_DELAY_MS": r"[0-9]+",
+    "APP_ANALYTICS_PHASE3_DELAY_MS": r"[0-9]+",
+}
+
+
+def runtime_env_values(settings: Iterable[str]) -> tuple[tuple[str, str], ...]:
+    values = {}
+    for setting in settings:
+        key, separator, value = setting.partition("=")
+        pattern = RUNTIME_ENV_PATTERNS.get(key)
+        if not separator or pattern is None or not re.fullmatch(pattern, value):
+            raise CandidateError("invalid or non-allowlisted runtime setting")
+        if key in values:
+            raise CandidateError(f"duplicate runtime setting: {key}")
+        values[key] = json.dumps(value)
+    return tuple(values.items())
+
+
 ORTHOLOGY_POLICY_KEY = "APP_ORTHO_REQUIRE_VERIFIED_ORTHOLOGY"
 ENV_FILE_MOUNT_RE = re.compile(r"(?<![A-Za-z0-9_.])\.env(?![A-Za-z0-9_.-])")
 
@@ -235,10 +258,11 @@ def _upsert_mapping(
 
 
 def build_application_candidate(
-    text: str, orthology_policy: str = "0", memory_limit: str | None = None
+    text: str, orthology_policy: str = "0", memory_limit: str | None = None,
+    runtime_env: Iterable[str] = (),
 ) -> str:
     lines = _prepare(text, "application.yml")
-    values = _resolved_values(APP_VALUES, orthology_policy)
+    values = (*_resolved_values(APP_VALUES, orthology_policy), *runtime_env_values(runtime_env))
     if _key_matches(lines, "container-env-file"):
         raise CandidateError("application.yml: container-env-file is not accepted")
 
@@ -502,6 +526,7 @@ def write_candidates(
     compose_output: Path,
     orthology_policy: str,
     memory_limit: str | None = None,
+    runtime_env: Iterable[str] = (),
 ) -> None:
     resolved = [path.resolve() for path in (application, application_output, compose, compose_output)]
     if len(set(resolved)) != 4:
@@ -513,7 +538,7 @@ def write_candidates(
     compose_text, compose_stat = _read_input(compose, "compose.yml")
 
     # Validate and build both documents before creating either output.
-    application_candidate = build_application_candidate(application_text, orthology_policy, memory_limit)
+    application_candidate = build_application_candidate(application_text, orthology_policy, memory_limit, runtime_env)
     compose_candidate = build_compose_candidate(compose_text, orthology_policy)
 
     staged: list[tuple[Path, Path]] = []
@@ -542,6 +567,8 @@ def main() -> None:
     parser.add_argument("--compose-output", required=True, type=Path)
     parser.add_argument("--orthology-policy", required=True, choices=("0", "1"))
     parser.add_argument("--container-memory-limit", help="Explicit measured app limit, e.g. 2g")
+    parser.add_argument("--app-env", action="append", default=[], metavar="APP_KEY=VALUE",
+                        help="Explicit allowlisted runtime override; omitted keys are unchanged")
     args = parser.parse_args()
     write_candidates(
         args.application,
@@ -550,6 +577,7 @@ def main() -> None:
         args.compose_output,
         args.orthology_policy,
         args.container_memory_limit,
+        args.app_env,
     )
 
 

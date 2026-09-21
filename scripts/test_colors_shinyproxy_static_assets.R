@@ -86,8 +86,12 @@ eager_profile <- c(
 for (env_key in names(eager_profile)) {
   constant_name <- paste0("COLORS_", sub("^APP_", "", env_key))
   expected_constant <- sprintf('%s="%s"', constant_name, eager_profile[[env_key]])
+  if (env_key %in% c("APP_HOMO_DEFER_SEQUENCE", "APP_ORTHO_DEFER_SEQUENCE",
+                     "APP_FOOTER_DEFER_SEQUENCE", "APP_DEFER_FEATURE_GC")) {
+    expected_constant <- sprintf('%s="${%s:-0}"', constant_name, constant_name)
+  }
   assert(grepl(expected_constant, deploy, fixed = TRUE),
-         paste("Colors must fix progressive profile constant:", expected_constant))
+         paste("Colors must preserve progressive profile default:", expected_constant))
   expected_check <- sprintf("check_eager_profile_value %s \"$%s\"", env_key, constant_name)
   assert(grepl(expected_check, check_text, fixed = TRUE),
          paste("Colors check must validate effective progressive value:", env_key))
