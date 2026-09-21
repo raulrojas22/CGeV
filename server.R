@@ -36528,9 +36528,9 @@
         )
     }
 
-    # Materialize when the active gene/region state is established, including
-    # restored sessions. The getter also validates synchronously, so an open
-    # event can never observe a stale projection before this observer runs.
+    # Materialize only on a STRING request. Lifecycle observation only prunes;
+    # it must never parse annotations when plots are established or restored.
+    # The getter validates the current source synchronously on every request.
     stringAnnotationState <- new_string_annotation_state()
     get_string_annotation_ids <- function(pid, ctx, d) {
         ann <- if (identical(ctx, "homo")) annotationPathsHomologous()[[pid]] else annotationPathsOrthologous()[[pid]]
@@ -36543,13 +36543,11 @@
         for (ctx in c("homo", "ortho")) {
             ids <- if (identical(ctx, "homo")) activePlotIdsHomologous() else activePlotIdsOrthologous()
             files <- if (identical(ctx, "homo")) fileDataHomologous() else fileDataOrthologous()
-            organisms <- if (identical(ctx, "homo")) organismInfoHomologous() else organismInfoOrthologous()
             for (id in ids) {
                 pid <- as.character(id)
                 fd <- files[[pid]]
                 if (is.null(fd) || nrow(fd) == 0L) next
                 live_keys <- c(live_keys, paste(ctx, pid, sep = ":"))
-                get_string_annotation_ids(pid, ctx, list(file_data = fd, org_info = organisms[[pid]]))
             }
         }
         stringAnnotationState$prune(live_keys)

@@ -3,6 +3,7 @@
 # Shiny observer scheduling/invalidation. Run from the repository root.
 source('R/utils.R')
 source('R/string_cache.R')
+source('R/string_worker.R')
 source('R/string_annotation.R')
 Sys.setenv(APP_PERF_TIMING = '0', APP_DEBUG_LOGS = '0')
 server_lines <- readLines('server.R')
@@ -72,6 +73,18 @@ make_env <- function() {
     eval(production, e)
     e
 }
+# This dependency must not silently fall through the builder's tryCatch. V1's
+# harness omitted string_worker.R, so screen_variants coverage was incomplete.
+dependency_env <- make_env()
+before <- dependency_env$original('1', 'homo')
+stopifnot(length(before$screen_variants) > 0L)
+dependency_env$hfiles[['2']]$V9 <- 'ID=other;Name=Other;protein_id=UNIQUE_Y_ALIAS'
+after <- dependency_env$original('1', 'homo')
+stopifnot(identical(before$id_candidates, after$id_candidates),
+          !identical(before$screen_variants, after$screen_variants),
+          'UNIQUE_Y_ALIAS' %in% after$screen_variants,
+          identical(after, dependency_env$build_string_query_payload('1', 'homo')))
+
 e <- make_env()
 parity <- function() {
     for (ctx in c('homo', 'ortho')) {
@@ -80,7 +93,7 @@ parity <- function() {
     }
 }
 parity()
-# Establish state before opening Network, just as the observer does.
+# Lifecycle pruning after the parity requests must leave valid projections reusable.
 eval(e$preparation, e)
 reset_counts()
 warm <- e$build_string_query_payload('1', 'homo')
@@ -161,6 +174,38 @@ reset_counts()
 invisible(new_string_annotation_state()$get('homo:1', source_state))
 stopifnot(counts[['parse']] == nrow(gff) + 2L) # session isolation
 
+# A 368-plot establishment and restore must perform no STRING projection work.
+shiny::testServer(function(input, output, session) {
+    env <- make_env()
+    ids <- as.character(seq_len(368L))
+    env$hfiles <- setNames(rep(list(gff), length(ids)), ids)
+    env$horg <- setNames(rep(list(list(name = 'Human', taxid = 9606)), length(ids)), ids)
+    env$hpaths <- setNames(rep(list('human.gff'), length(ids)), ids)
+    env$ofiles <- list()
+    env$observe <- shiny::observe
+    env$fileDataHomologous <- shiny::reactiveVal(env$hfiles)
+    eval(production, env)
+}, {
+    reset_counts()
+    session$flushReact()
+    stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
+    # Direct getter verifies lazy projection storage and pruning separately from
+    # the full payload's cross-plot screen_variants dependency.
+    d <- env$get_chart_plot_data('1', 'homo')
+    x <- env$get_string_annotation_ids('1', 'homo', d)
+    stopifnot(counts[['parse']] == nrow(gff) + 2L)
+    reset_counts()
+    fd <- env$fileDataHomologous()
+    env$fileDataHomologous(list())
+    session$flushReact()
+    stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
+    env$fileDataHomologous(fd)
+    session$flushReact()
+    stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
+    stopifnot(identical(x, env$get_string_annotation_ids('1', 'homo', d)))
+    stopifnot(counts[['parse']] == nrow(gff) + 2L)
+})
+
 # Exercise the production observer with genuine Shiny reactive state, including
 # deletion, restore, an unrelated plot update, and opening before observer flush.
 shiny::testServer(function(input, output, session) {
@@ -174,15 +219,20 @@ shiny::testServer(function(input, output, session) {
     env$annotationPathsOrthologous <- shiny::reactiveVal(env$opaths)
     eval(production, env)
 }, {
-    session$flushReact()
     reset_counts()
+    session$flushReact()
+    stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
     p <- env$build_string_query_payload('1', 'homo')
+    reset_counts()
+    stopifnot(identical(p, env$build_string_query_payload('1', 'homo')))
     stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
     fd <- env$fileDataHomologous()
     fd[['2']] <- frame('ID=changed;Name=Changed')
     env$fileDataHomologous(fd)
     session$flushReact()
-    stopifnot(counts[['parse']] == 3L) # only changed one-row plot
+    stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
+    env$build_string_query_payload('1', 'homo')
+    stopifnot(counts[['parse']] == 3L) # screen dependency: changed one-row plot
     fd[['1']]$V9[1] <- 'ID=changed-first;Name=ChangedFirst'
     env$fileDataHomologous(fd)
     # No flush yet: synchronous guard must detect the changed snapshot.
@@ -196,6 +246,8 @@ shiny::testServer(function(input, output, session) {
     reset_counts()
     env$fileDataHomologous(fd)
     session$flushReact()
+    stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
+    env$build_string_query_payload('1', 'homo')
     stopifnot(counts[['parse']] == nrow(fd[['1']]) + nrow(fd[['2']]) + 4L)
 })
 # Timing disabled must not emit logs; enabled exposes materialization and reuse.
