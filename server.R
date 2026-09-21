@@ -36532,11 +36532,15 @@
     # it must never parse annotations when plots are established or restored.
     # The getter validates the current source synchronously on every request.
     stringAnnotationState <- new_string_annotation_state()
+    string_annotation_source <- function(pid, ctx, d) {
+        ann <- tryCatch(
+            if (identical(ctx, "homo")) annotationPathsHomologous()[[pid]] else annotationPathsOrthologous()[[pid]],
+            error = function(e) ""
+        )
+        list(file_data = d$file_data, org_info = d$org_info, annotation_path = ann)
+    }
     get_string_annotation_ids <- function(pid, ctx, d) {
-        ann <- if (identical(ctx, "homo")) annotationPathsHomologous()[[pid]] else annotationPathsOrthologous()[[pid]]
-        stringAnnotationState$get(paste(ctx, pid, sep = ":"), list(
-            file_data = d$file_data, org_info = d$org_info, annotation_path = ann
-        ))
+        stringAnnotationState$get(paste(ctx, pid, sep = ":"), string_annotation_source(pid, ctx, d))
     }
     observe({
         live_keys <- character(0)
@@ -36619,25 +36623,28 @@
             tx
         }
 
-        extract_gff_ids_for_plot <- function(plot_id, ctx_name, plot_d = NULL) {
-            tryCatch({
-                if (is.null(plot_d)) plot_d <- get_chart_plot_data(as.character(plot_id), ctx_name)
-                if (is.null(plot_d$file_data) || nrow(plot_d$file_data) == 0) return(NULL)
-                get_string_annotation_ids(as.character(plot_id), ctx_name, plot_d)$screen_ids
-            }, error = function(e) NULL)
-        }
-
         collect_screen_records <- function(ctx_name, ids, titles_map) {
             records <- list()
+            plots <- list()
+            sources <- list()
             for (i_id in ids %||% integer(0)) {
                 id_chr <- as.character(i_id)
                 plot_d <- tryCatch(get_chart_plot_data(id_chr, ctx_name), error = function(e) NULL)
                 if (is.null(plot_d) || is.null(plot_d$file_data) || nrow(plot_d$file_data) == 0L) next
+                plots[[id_chr]] <- plot_d
+                key <- paste(ctx_name, id_chr, sep = ":")
+                sources[[key]] <- string_annotation_source(id_chr, ctx_name, plot_d)
+            }
+            screen_ids <- stringAnnotationState$screen(sources)
+            for (i_id in ids %||% integer(0)) {
+                id_chr <- as.character(i_id)
+                plot_d <- plots[[id_chr]]
+                if (is.null(plot_d)) next
                 t_str <- tryCatch(titles_map[[id_chr]], error = function(e) "")
                 g_name <- trimws(as.character(extract_title_field(t_str, "Gene") %||% ""))
                 candidates <- c()
                 if (!is_invalid_str(g_name)) candidates <- c(candidates, g_name)
-                candidates <- c(candidates, extract_gff_ids_for_plot(id_chr, ctx_name, plot_d = plot_d))
+                candidates <- c(candidates, screen_ids[[paste(ctx_name, id_chr, sep = ":")]])
                 candidates <- unique(trimws(candidates))
                 candidates <- candidates[nzchar(candidates) & !is.na(candidates)]
                 if (length(candidates) == 0L) next

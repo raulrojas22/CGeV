@@ -232,7 +232,7 @@ shiny::testServer(function(input, output, session) {
     session$flushReact()
     stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
     env$build_string_query_payload('1', 'homo')
-    stopifnot(counts[['parse']] == 3L) # screen dependency: changed one-row plot
+    stopifnot(counts[['parse']] == 0L, counts[['decode']] == 1L) # lightweight Y screen only
     fd[['1']]$V9[1] <- 'ID=changed-first;Name=ChangedFirst'
     env$fileDataHomologous(fd)
     # No flush yet: synchronous guard must detect the changed snapshot.
@@ -248,7 +248,7 @@ shiny::testServer(function(input, output, session) {
     session$flushReact()
     stopifnot(counts[['parse']] == 0L, counts[['decode']] == 0L)
     env$build_string_query_payload('1', 'homo')
-    stopifnot(counts[['parse']] == nrow(fd[['1']]) + nrow(fd[['2']]) + 4L)
+    stopifnot(counts[['parse']] == nrow(fd[['1']]) + 2L) # full query only for X
 })
 # Timing disabled must not emit logs; enabled exposes materialization and reuse.
 stopifnot(length(capture.output(invisible(state$get('homo:1', source_state)), type = 'message')) == 0L)
@@ -262,3 +262,172 @@ stopifnot(any(grepl('annotation_prepare_ms', messages)),
           any(grepl('annotation_materialized', messages)), any(grepl('annotation_reuse', messages)))
 Sys.setenv(APP_PERF_TIMING = '0')
 cat('string-annotation-reuse-ok\n')
+
+# Extract the original nested screen function directly from the frozen builder.
+find_assignment <- function(expr, name) {
+    if (!is.call(expr)) return(NULL)
+    if (identical(expr[[1]], as.name('<-')) && identical(expr[[2]], as.name(name))) return(expr)
+    for (child in as.list(expr)[-1L]) {
+        result <- find_assignment(child, name)
+        if (!is.null(result)) return(result)
+    }
+    NULL
+}
+ref_env <- new.env(parent = globalenv())
+eval(find_assignment(reference[[1]], 'extract_gff_ids_for_plot'), ref_env)
+ref_screen <- function(attrs) ref_env$extract_gff_ids_for_plot('1', 'homo', list(file_data = frame(attrs)))
+# Mixed GFF/GTF, encoded keys, duplicate keys, unknown fields, invalid UTF-8
+# escapes, embedded NUL escapes, malformed percent signs and trailing equals.
+edges <- c(gff$V9, paste0('Name=A%', sprintf('%02X', 0:255), 'B;ID=tail'),
+           'Name=A=;ID=B', 'Name=A==;ID=B', '%4Eame=Encoded;ID=x',
+           'Name = spaced;ID=x', 'Name="quoted";ID=x', 'Name=A%2525B',
+           'Parent=ignored;gene_name=ignored;Alias=ignored;gene_synonym=ignored',
+           'gene_id "GTF"; gene_name "Ignored"; Name "Used";',
+           'Name=A;unknown=%00;ID=after', 'Name=A;unknown=%FF;ID=after',
+           'Name=A\tB;ID=C', 'NAME=first;name=second;Dbxref=A:B;DBXREF=C:D',
+           'Dbxref=:,::,A:,A::B,,;db_xref=X:Y', rawToChar(as.raw(255)))
+screen_state <- new_string_annotation_state()
+for (i in seq_along(edges)) {
+    attrs <- c('ID=before;Name=Before', edges[i], 'ID=after;Name=After')
+    src <- list(file_data = frame(attrs), annotation_path = 'fixture', org_info = list(taxid = 9606))
+    actual <- suppressWarnings(screen_state$screen(list('homo:1' = src))[[1]])
+    expected <- suppressWarnings(ref_screen(attrs))
+    stopifnot(identical(actual, expected))
+}
+# Deduplicating shared raw rows must not change row order or early-abort behavior.
+set.seed(304)
+for (i in 1:100) {
+    attrs <- sample(edges[-length(edges)], 12L, replace = TRUE)
+    src <- list(file_data = frame(attrs), annotation_path = 'fixture', org_info = list(taxid = 9606))
+    stopifnot(identical(suppressWarnings(screen_state$screen(list('homo:1' = src))[[1]]),
+                        suppressWarnings(ref_screen(attrs))))
+}
+
+# Count complete projections and unique rows processed by the lightweight path.
+full_prepare <- string_prepare_gff_identifiers
+full_count <- 0L
+string_prepare_gff_identifiers <- function(file_data) {
+    full_count <<- full_count + 1L
+    full_prepare(file_data)
+}
+screen_prepare <- string_prepare_screen_rows
+screen_rows_seen <- 0L
+string_prepare_screen_rows <- function(attrs) {
+    screen_rows_seen <<- screen_rows_seen + length(attrs)
+    screen_prepare(attrs)
+}
+reset_work <- function() {
+    reset_counts()
+    full_count <<- 0L
+    screen_rows_seen <<- 0L
+}
+large <- make_env()
+ids <- as.character(seq_len(368L))
+shared <- 'ID=gene:shared;Name=Shared;Dbxref=GeneID:123;gene_name=Shared;Parent=unused'
+large$hfiles <- setNames(lapply(ids, function(id) frame(c(shared,
+    paste0('ID=transcript:T', id, ';Name=T', id, ';protein_id=NP_', id),
+    'ID=exon:common;Parent=gene:shared'))), ids)
+large$horg <- setNames(rep(list(list(name = 'Human', taxid = 9606)), length(ids)), ids)
+large$hpaths <- setNames(rep(list('human.gff'), length(ids)), ids)
+large$htitles <- setNames(paste0('Title', ids), ids)
+large$ofiles <- list()
+reset_work()
+eval(large$preparation, large)
+stopifnot(full_count == 0L, screen_rows_seen == 0L, all(counts == 0L))
+reset_work()
+original_x <- large$original('1', 'homo')
+original_counts <- counts
+reset_work()
+x <- large$build_string_query_payload('1', 'homo')
+first_counts <- counts
+stopifnot(identical(x, original_x), full_count == 1L, screen_rows_seen == 369L,
+          counts[['parse']] == 5L, counts[['parse']] < original_counts[['parse']] / 10,
+          counts[['decode']] < original_counts[['decode']] / 10,
+          'NP_368' %in% x$screen_variants)
+reset_work()
+for (i in 1:5) stopifnot(identical(x, large$build_string_query_payload('1', 'homo')))
+stopifnot(full_count == 0L, screen_rows_seen == 0L, all(counts == 0L))
+reset_work()
+y <- large$build_string_query_payload('2', 'homo')
+y_counts <- counts
+stopifnot(full_count == 1L, screen_rows_seen == 0L, counts[['parse']] == 5L)
+stopifnot(identical(y, large$original('2', 'homo')))
+# Alter only Y: X's query remains cached, screen candidates update lazily.
+large$hfiles[['2']]$V9[2] <- 'ID=transcript:T2;protein_id=Y_CHANGED_ONLY'
+reset_work()
+x_changed <- large$build_string_query_payload('1', 'homo')
+stopifnot(full_count == 0L, screen_rows_seen == 3L, counts[['parse']] == 0L,
+          counts[['decode']] == 1L, identical(x$id_candidates, x_changed$id_candidates),
+          'Y_CHANGED_ONLY' %in% x_changed$screen_variants,
+          !'NP_2' %in% x_changed$screen_variants)
+stopifnot(identical(x_changed, large$original('1', 'homo')))
+reset_work()
+invisible(large$build_string_query_payload('1', 'homo'))
+stopifnot(full_count == 0L, screen_rows_seen == 0L, all(counts == 0L))
+cat(sprintf('368-plot synthetic fixture: original X parse/decode=%d/%d; first X=%d/%d; first Y=%d/%d; repeated X=0/0\n',
+    original_counts[['parse']], original_counts[['decode']], first_counts[['parse']], first_counts[['decode']],
+    y_counts[['parse']], y_counts[['decode']]))
+cat('string-screen-projection-ok\n')
+
+# Functional reason for cross-plot aliases: a related node is visually classified
+# as plotted when Y is on screen, and neighbor when Y is removed or another taxon.
+local({
+    tmp <- tempfile('string-screen-roles-')
+    dir.create(tmp)
+    on.exit(unlink(tmp, recursive = TRUE))
+    roles_env <- make_env()
+    roles_env$hfiles[['2']] <- frame('ID=Y;protein_id=Y_EXCLUSIVE_ALIAS')
+    roles_env$htitles[['2']] <- 'Unrelated display title'
+    string_resolution_cache_set(9606L, 'Y_EXCLUSIVE_ALIAS',
+        list(found = TRUE, string_id = '9606.TP53', preferred_name = 'TP53'), tmp)
+    graph <- list(taxid = 9606L, resolved_id = '9606.BRCA1', nodes = data.frame(
+        id = c('9606.BRCA1', '9606.TP53', '9606.NEIGHBOR'), label = c('BRCA1', 'TP53', 'Neighbor')))
+    compare_roles <- function(expected) {
+        original <- roles_env$original('1', 'homo')
+        candidate <- roles_env$build_string_query_payload('1', 'homo')
+        stopifnot(identical(original, candidate))
+        a <- string_apply_display_roles(graph, original, tmp, resolve_missing = FALSE)
+        b <- string_apply_display_roles(graph, candidate, tmp, resolve_missing = FALSE)
+        a$role_applied_at <- b$role_applied_at <- NULL
+        stopifnot(identical(a, b), identical(b$nodes$role, c('target', expected, 'neighbor')))
+    }
+    compare_roles('plotted')
+    roles_env$horg[['2']]$taxid <- 10090
+    compare_roles('neighbor')
+    roles_env$horg[['2']]$taxid <- 9606
+    compare_roles('plotted')
+    saved <- roles_env$hfiles[['2']]
+    roles_env$hfiles[['2']] <- NULL
+    reset_work()
+    eval(roles_env$preparation, roles_env)
+    stopifnot(full_count == 0L, screen_rows_seen == 0L, all(counts == 0L))
+    compare_roles('neighbor')
+    roles_env$hfiles[['2']] <- saved
+    reset_work()
+    eval(roles_env$preparation, roles_env)
+    stopifnot(full_count == 0L, screen_rows_seen == 0L, all(counts == 0L))
+    invisible(roles_env$build_string_query_payload('1', 'homo'))
+    stopifnot(full_count == 0L, screen_rows_seen == 1L, counts[['parse']] == 0L)
+    compare_roles('plotted')
+})
+cat('string-cross-plot-visual-roles-ok\n')
+
+# Separate screen timing identifies fallback-heavy inputs without row logging.
+local({
+    state <- new_string_annotation_state()
+    src <- list(file_data = frame(c('ID=G;Name=G', 'gene_id "gtf";')),
+                org_info = list(taxid = 9606), annotation_path = 'timing')
+    quiet <- capture.output(invisible(state$screen(list('homo:1' = src))), type = 'message')
+    stopifnot(length(quiet) == 0L)
+    state$prune(character())
+    Sys.setenv(APP_PERF_TIMING = '1')
+    on.exit(Sys.setenv(APP_PERF_TIMING = '0'))
+    messages <- capture.output({
+        invisible(state$screen(list('homo:1' = src)))
+        invisible(state$screen(list('homo:1' = src)))
+    }, type = 'message')
+    stopifnot(any(grepl('screen_prepare_ms', messages)),
+              any(grepl('screen_materialized=1 screen_reused=0 screen_unique_rows=2 screen_fallback_rows=1', messages)),
+              any(grepl('screen_materialized=0 screen_reused=1 screen_unique_rows=0 screen_fallback_rows=0', messages)))
+})
+cat('string-screen-timing-ok\n')
