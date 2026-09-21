@@ -170,7 +170,7 @@ test_that("the orthologous processor reuses successful prepass blocks", {
 
     expect_match(
         processor_txt,
-        "phase_transcript_splits <- prepare_orthologous_transcript_splits_once(results)",
+        "phase_transcript_splits <- prepare_orthologous_transcript_splits_once(",
         fixed = TRUE
     )
     expect_match(
@@ -184,7 +184,7 @@ test_that("the orthologous processor reuses successful prepass blocks", {
         fixed = TRUE
     )
     direct_calls <- gregexpr(
-        "split_gene_data_by_transcript(data)",
+        "prepared_split <- shared_gene_split(",
         processor_txt,
         fixed = TRUE
     )[[1L]]

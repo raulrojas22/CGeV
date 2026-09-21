@@ -375,6 +375,7 @@ if (file.exists("R/alias_resolution.R")) {
     cgv_source_runtime("R/alias_resolution.R", envir = lib_env)
 }
 cgv_source_runtime("R/utils.R", envir = lib_env)
+cgv_source_runtime("R/shared_gene_cache.R", envir = lib_env)
 cgv_source_runtime("R/feedback_delivery.R", envir = lib_env)
 cgv_source_runtime("R/background_report_jobs.R", envir = lib_env)
 cgv_source_runtime("R/modules.R", envir = lib_env)
