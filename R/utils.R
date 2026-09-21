@@ -8914,7 +8914,7 @@ split_gene_data_by_transcript <- function(data_df) {
     out
 }
 
-prepare_orthologous_transcript_splits_once <- function(results, split_fun = split_gene_data_by_transcript) {
+prepare_orthologous_transcript_splits_once <- function(results, split_fun = split_gene_data_by_transcript, prepare_fun = NULL) {
     if (!is.function(split_fun)) {
         stop("split_fun must be a function", call. = FALSE)
     }
@@ -8936,7 +8936,12 @@ prepare_orthologous_transcript_splits_once <- function(results, split_fun = spli
 
         split_t0 <- app_perf_now()
         split_attempt <- tryCatch(
-            list(reusable = TRUE, blocks = split_fun(data)),
+            if (is.function(prepare_fun)) {
+                value <- prepare_fun(result)
+                list(reusable = TRUE, blocks = value$blocks, canonical = value$canonical)
+            } else {
+                list(reusable = TRUE, blocks = split_fun(data))
+            },
             error = function(e) list(reusable = FALSE, blocks = list())
         )
         blocks <- split_attempt$blocks
@@ -8948,6 +8953,7 @@ prepare_orthologous_transcript_splits_once <- function(results, split_fun = spli
             reusable = isTRUE(split_attempt$reusable),
             elapsed_ms = app_perf_elapsed_ms(split_t0)
         )
+        if (!is.null(split_attempt$canonical)) prepared[[result_idx]]$canonical <- split_attempt$canonical
     }
 
     prepared
