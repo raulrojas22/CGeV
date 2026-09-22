@@ -9,7 +9,7 @@ setting was changed to produce it.
 - Validated production revision: `368872bae9b8833ffef02cdca3573bd202438485`
 - Validated production image: `localhost/cgv:release-368872bae9b8-20260921T154656Z`
 - Production endpoint: `https://cgev.mobilomics.org`
-- Host: `colors` (`64.176.19.13`, SSH port `628`)
+- Host: `colors` (production host; connection coordinates intentionally omitted)
 
 **Strongest demonstrated statement:**
 
@@ -328,8 +328,10 @@ path but is explicitly **not** claimed as resolved.
   `JSERR:Uncaught` — were **explicitly discarded** and are excluded from all
   results.
 
-The harness (`cgev_worker.R`, `run_stage.sh`, `sampler.sh`, `analyze.R`) is
-preserved under the temporary work directory recorded in section 13.
+The harness results and derived summaries that substantiate the tables below are
+committed under `docs/performance/evidence/concurrency-20260921/` (section 13);
+the original harness scripts and raw sampler output were author-local and are
+cited there as provenance only.
 
 ---
 
@@ -353,19 +355,38 @@ rounded):
 | 4 | +21.8% | +84.6% | +80.2% | +25.1% | +65.5% |
 | 6 | +77.9% | +176.1% | +157.9% | +52.5% | +134.6% |
 
-Aggregate throughput (completed users / median total):
+Aggregate throughput must be computed from the synchronized-batch **makespan**,
+not from a per-user median: the median discards the slow tail, so
+`users / median(total)` overstates batch throughput. Makespan is the interval
+from the shared barrier release to the final worker completion.
 
-| Stage | Users | Throughput | Relative |
-|---:|---:|---:|---:|
-| 1 | 1 | 0.0139 users/s | 1.00× |
-| 2 | 2 | 0.0253 users/s | ~1.82× |
-| 3 | 4 | 0.0336 users/s | ~2.42× |
-| 4 | 6 | 0.0355 users/s | ~2.55× |
+| Stage | Users | Batch makespan (s) | Throughput (users/s) | Relative to Stage 1 | Makespan source |
+|---:|---:|---:|---:|---:|---|
+| 1 | 1 | 71.980 | 0.01389 | 1.00× | single worker `total_work_s` |
+| 2 | 2 | 82.580 | 0.02422 | 1.74× | `max(total_work_s)` from the shared barrier |
+| 3 | 4 | 129.310 | 0.03093 | 2.23× | epoch: `max(t_end) − min(t_start)` |
+| 4 | 6 | 182.067 | 0.03295 | 2.37× | epoch: `max(t_end) − min(t_start)` |
 
-**Interpreted:** throughput remains monotonic but strongly sub-linear. Doubling
-from 2 to 4 users buys far less than the first doubling, and 4 to 6 buys almost
-nothing in aggregate throughput while inflating per-user latency by ~135%.
-The dominant term is the Network canvas (section 6).
+**Makespan evidence note:** Stages 3 and 4 recorded absolute epoch timestamps
+(`t_start_epoch` at barrier release, `t_end_epoch` at completion), so their
+makespans are exact. Stage 1 is a single worker, whose `total_work_s` equals the
+batch makespan. Stage 2 did **not** record absolute epoch timestamps; its
+makespan is `max(total_work_s)`, which is exact only because both workers were
+released from the **same shared barrier file**, so each `total_work_s` is
+measured from that common release. This is stated explicitly rather than
+reconstructed: an independent absolute-clock makespan for Stage 2 is not
+recoverable from the evidence. The recomputation is reproducible via
+`docs/performance/evidence/concurrency-20260921/analysis/makespan_throughput.py`.
+
+The earlier median-derived indicator (`users / median(total)`: 0.0139 / 0.0253 /
+0.0336 / 0.0355 users/s) is **not** aggregate throughput and is retained only as
+a rough median-derived index; it is superseded by the makespan figures above.
+
+**Interpreted:** with the correct makespan definition, throughput is still
+monotonic but strongly sub-linear (1.00× → 1.74× → 2.23× → 2.37×). Doubling
+from 2 to 4 users buys far less than the first doubling, and 4 to 6 adds little
+aggregate throughput while inflating per-user latency by ~135%. The dominant
+term is the Network canvas (section 6).
 
 ---
 
@@ -555,18 +576,30 @@ further change.
 - In-repo phase documentation: `docs/performance/FUTURE_GLOBALS_REVIEW.md`,
   `docs/performance/PR2_SHARED_GENE_CACHE.md`,
   `docs/performance/PR3_STRING_ATTRIBUTE_REUSE.md`.
-- Concurrency harness and results:
-  `/var/folders/yp/pr2cylfx4blbt2yq534ls7100000gn/T/opencode/cgev-conc/`
-  (`cgev_worker.R`, `run_stage.sh`, `sampler.sh`, `analyze.R`, `compare.py`,
-  `overlap.py`, and `logs/stage{1,2,3,4}/result_*.json`, `samples.csv`).
-- Isolated A/B and profiling logs under
-  `/var/folders/yp/pr2cylfx4blbt2yq534ls7100000gn/T/opencode/`
-  (`brca1_perf.log`, `pr2_perf.log`, `pr3c.log`, `pp3_brca1.log`,
-  `pr1-iso/…`).
+- **Durable concurrency evidence (in this repository):**
+  `docs/performance/evidence/concurrency-20260921/`
+  - `results/stage{1,2,3,4}/result_*.json` — per-worker results (per-session
+    identifier removed); source of the latency medians and the makespan
+    calculation;
+  - `resource-summary.json` — per-stage resource peaks derived from the host
+    sampler;
+  - `analysis/makespan_throughput.py` and its captured output
+    `analysis/makespan_throughput.txt` — reproducible throughput calculation;
+  - `README.md` — stage mapping, makespan definition, and reproducibility
+    commands.
+- **Provenance (historical, author-local, not durable):** the concurrency
+  harness and raw sampler output originally lived under
+  `/var/folders/yp/…/T/opencode/cgev-conc/` (`cgev_worker.R`, `run_stage.sh`,
+  `sampler.sh`, `analyze.R`, `compare.py`, `overlap.py`, and the raw
+  `samples.csv`). The compact, scrubbed subset committed above is the durable
+  evidence of record; the temporary path is cited only as provenance.
+- Isolated A/B and profiling logs (author-local, not committed):
+  `brca1_perf.log`, `pr2_perf.log`, `pr3c.log`, `pp3_brca1.log`, and
+  `pr1-iso/…`, originally under the same temporary work directory.
 - PR3 profiling and A/B numbers (parse/decode call counts, 40,000-case fuzz,
   control-vs-candidate canvas) recovered from the validating session log
   (`…/.codex/sessions/2026/09/21/…jsonl`).
-- Live production inspection of `colors` (`64.176.19.13:628`).
+- Live production inspection of `colors`.
 
 ### Discrepancies with the task prompt
 
@@ -590,3 +623,6 @@ further change.
 - The transient ~5 GiB startup memory event (no OOM; mechanism uncharacterized).
 - p95 / tail latency: the concurrency stages report medians over a small
   number of sessions, not a p95 distribution.
+- Stage 2 batch makespan: absolute epoch timestamps were not recorded for that
+  stage, so its makespan is derived from the shared barrier release rather than
+  an independent absolute clock.
