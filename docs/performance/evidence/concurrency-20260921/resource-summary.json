@@ -1,0 +1,50 @@
+[
+  {
+    "stage": 1,
+    "samples": 120,
+    "parsed_containers_samples": 120,
+    "max_sp_containers": 3,
+    "peak_load1": 1.17,
+    "min_memavailable_gb": 11.03,
+    "peak_aggregate_cpu_pct": 191,
+    "peak_single_cpu_pct": 155,
+    "peak_total_container_mem_mb": 6940,
+    "peak_single_container_mem_mb": 5498
+  },
+  {
+    "stage": 2,
+    "samples": 280,
+    "parsed_containers_samples": 280,
+    "max_sp_containers": 4,
+    "peak_load1": 1.98,
+    "min_memavailable_gb": 10.11,
+    "peak_aggregate_cpu_pct": 345,
+    "peak_single_cpu_pct": 171,
+    "peak_total_container_mem_mb": 3296,
+    "peak_single_container_mem_mb": 1101
+  },
+  {
+    "stage": 3,
+    "samples": 320,
+    "parsed_containers_samples": 320,
+    "max_sp_containers": 5,
+    "peak_load1": 4.72,
+    "min_memavailable_gb": 8.74,
+    "peak_aggregate_cpu_pct": 459,
+    "peak_single_cpu_pct": 231,
+    "peak_total_container_mem_mb": 4843,
+    "peak_single_container_mem_mb": 1101
+  },
+  {
+    "stage": 4,
+    "samples": 360,
+    "parsed_containers_samples": 360,
+    "max_sp_containers": 7,
+    "peak_load1": 6.37,
+    "min_memavailable_gb": 6.78,
+    "peak_aggregate_cpu_pct": 628,
+    "peak_single_cpu_pct": 195,
+    "peak_total_container_mem_mb": 7749,
+    "peak_single_container_mem_mb": 5498
+  }
+]

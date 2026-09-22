@@ -1,0 +1,22 @@
+{
+  "app_load_s": 2.53,
+  "card_ok": true,
+  "card_s": 16.13,
+  "error": "",
+  "footer_ok": true,
+  "footer_ready_s": 71.98,
+  "gene": "BRCA1",
+  "lit_click": "LIT",
+  "lit_ok": true,
+  "lit_s": 3.03,
+  "net_canvas_ok": true,
+  "net_canvas_s": 51.82,
+  "net_click": "NET",
+  "net_modal_ok": true,
+  "net_modal_s": 13.09,
+  "ok": true,
+  "organism_s": 0.01,
+  "stage": "1",
+  "total_work_s": 71.98,
+  "worker": "1"
+}
