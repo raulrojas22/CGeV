@@ -159,6 +159,57 @@ string_prepare_screen_rows <- function(attrs) {
 new_string_annotation_state <- function() {
     entries <- new.env(parent = emptyenv())
     screens <- new.env(parent = emptyenv())
+    screen_capture <- function(sources) {
+        timing <- isTRUE(app_perf_enabled())
+        t0 <- if (timing) app_perf_now() else NULL
+        result <- vector("list", length(sources))
+        names(result) <- names(sources)
+        missing <- character(0)
+        for (key in names(sources)) {
+            full <- entries[[key]]
+            if (!is.null(full) && !identical(full$source, sources[[key]])) {
+                entries[[key]] <- NULL
+                full <- NULL
+            }
+            entry <- screens[[key]]
+            if (!is.null(full) && identical(full$source, sources[[key]])) {
+                result[key] <- list(full$value$screen_ids)
+            } else if (!is.null(entry) && identical(entry$source, sources[[key]])) {
+                result[key] <- list(entry$value)
+            } else {
+                missing <- c(missing, key)
+            }
+        }
+        # One request-scoped batch of unique raw rows across changed plots.
+        # Shared rows are decoded/extracted once then mapped back in original
+        # row order. Only each plot's compact IDs survive this call.
+        raw_by_plot <- lapply(sources[missing], function(src) as.character(src$file_data$V9))
+        attrs <- unique(unlist(raw_by_plot, use.names = FALSE))
+        list(sources = sources, result = result, missing = missing,
+             raw_by_plot = raw_by_plot, attrs = attrs, t0 = t0)
+    }
+    screen_merge <- function(plan, prepared) {
+        sources <- plan$sources
+        result <- plan$result
+        missing <- plan$missing
+        raw_by_plot <- plan$raw_by_plot
+        attrs <- plan$attrs
+        for (key in missing) {
+            row_ids <- match(raw_by_plot[[key]], attrs)
+            failed <- vapply(prepared[row_ids], function(row) row$failed, logical(1))
+            if (any(failed)) row_ids <- row_ids[seq_len(which(failed)[1L])]
+            value <- unique(unlist(lapply(prepared[row_ids], function(row) row$ids), use.names = FALSE))
+            screens[[key]] <- list(source = sources[[key]], value = value)
+            result[key] <- list(value)
+        }
+        if (!is.null(plan$t0)) {
+            app_perf_mark_ms(NULL, "screen_prepare_ms", app_perf_elapsed_ms(plan$t0), "STRING")
+            app_perf_mark(NULL, sprintf("screen_materialized=%d screen_reused=%d screen_unique_rows=%d screen_fallback_rows=%d",
+                length(missing), length(sources) - length(missing), length(attrs),
+                attr(prepared, "fallback_rows") %||% 0L), "STRING")
+        }
+        result
+    }
     list(
         get = function(key, source) {
             timing <- isTRUE(app_perf_enabled())
@@ -177,48 +228,12 @@ new_string_annotation_state <- function() {
             }
             entry$value
         },
+        screen_capture = screen_capture,
+        screen_merge = screen_merge,
         screen = function(sources) {
-            timing <- isTRUE(app_perf_enabled())
-            if (timing) t0 <- app_perf_now()
-            result <- vector("list", length(sources))
-            names(result) <- names(sources)
-            missing <- character(0)
-            for (key in names(sources)) {
-                full <- entries[[key]]
-                if (!is.null(full) && !identical(full$source, sources[[key]])) {
-                    entries[[key]] <- NULL
-                    full <- NULL
-                }
-                entry <- screens[[key]]
-                if (!is.null(full) && identical(full$source, sources[[key]])) {
-                    result[key] <- list(full$value$screen_ids)
-                } else if (!is.null(entry) && identical(entry$source, sources[[key]])) {
-                    result[key] <- list(entry$value)
-                } else {
-                    missing <- c(missing, key)
-                }
-            }
-            # One request-scoped batch of unique raw rows across changed plots.
-            # Shared rows are decoded/extracted once then mapped back in original
-            # row order. Only each plot's compact IDs survive this call.
-            raw_by_plot <- lapply(sources[missing], function(src) as.character(src$file_data$V9))
-            attrs <- unique(unlist(raw_by_plot, use.names = FALSE))
-            prepared <- string_prepare_screen_rows(attrs)
-            for (key in missing) {
-                row_ids <- match(raw_by_plot[[key]], attrs)
-                failed <- vapply(prepared[row_ids], function(row) row$failed, logical(1))
-                if (any(failed)) row_ids <- row_ids[seq_len(which(failed)[1L])]
-                value <- unique(unlist(lapply(prepared[row_ids], function(row) row$ids), use.names = FALSE))
-                screens[[key]] <- list(source = sources[[key]], value = value)
-                result[key] <- list(value)
-            }
-            if (timing) {
-                app_perf_mark_ms(NULL, "screen_prepare_ms", app_perf_elapsed_ms(t0), "STRING")
-                app_perf_mark(NULL, sprintf("screen_materialized=%d screen_reused=%d screen_unique_rows=%d screen_fallback_rows=%d",
-                    length(missing), length(sources) - length(missing), length(attrs),
-                    attr(prepared, "fallback_rows") %||% 0L), "STRING")
-            }
-            result
+            plan <- screen_capture(sources)
+            prepared <- if (length(plan$attrs)) string_prepare_screen_rows(plan$attrs) else list()
+            screen_merge(plan, prepared)
         },
         prune = function(keys) {
             stale <- setdiff(ls(entries, all.names = TRUE), keys)
@@ -228,4 +243,25 @@ new_string_annotation_state <- function() {
             invisible(NULL)
         }
     )
+}
+
+# Same baseenv-bound transport pattern as string_future_worker. Sources, session
+# caches and merge plans stay in main; only immutable character batches travel.
+string_screen_future_worker <- function(screen_batches, timing = FALSE) {
+    started <- if (timing) as.numeric(Sys.time()) else NULL
+    worker_env <- new.env(parent = baseenv())
+    sys.source(file.path("R", "utils.R"), envir = worker_env)
+    sys.source(file.path("R", "string_annotation.R"), envir = worker_env)
+    compute_start <- if (timing) proc.time()[["elapsed"]] else NULL
+    rows <- lapply(screen_batches, worker_env$string_prepare_screen_rows)
+    list(rows = rows, timing = if (timing) list(
+        started = started, finished = as.numeric(Sys.time()), pid = Sys.getpid(),
+        compute_ms = (proc.time()[["elapsed"]] - compute_start) * 1000
+    ) else NULL)
+}
+environment(string_screen_future_worker) <- baseenv()
+
+string_screen_future_globals <- function(screen_batches, timing = FALSE) {
+    list(string_screen_future_worker = string_screen_future_worker,
+         screen_batches = screen_batches, timing = timing)
 }
