@@ -10614,6 +10614,10 @@
                     tryCatch(map[[pid]], error = function(e) NULL)
                 }), ids)
             }
+            # Reuse state MUST remain a superset of every semantic input read by
+            # computeHomoMultiTranscriptGeneGroups: ordered active IDs and their
+            # metadata, organism, annotation and title entries. If the computation
+            # gains another dependency, update this reuse state accordingly.
             state <- list(
                 ids = ids,
                 meta_map = active_entries(tryCatch(plotGeneMetaHomologous(), error = function(e) list())),
