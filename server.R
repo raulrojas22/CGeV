@@ -10526,18 +10526,9 @@
         }, ids)
     })
 
-    homoMultiTranscriptGeneGroups <- reactive({
-        ids <- as.character(sortedPlotIdsHomologous() %||% character(0))
-        ids <- ids[nzchar(ids)]
-        if (length(ids) == 0L) {
-            return(list())
-        }
-
-        meta_map <- tryCatch(plotGeneMetaHomologous(), error = function(e) list())
-        org_map <- tryCatch(organismInfoHomologous(), error = function(e) list())
-        ann_map <- tryCatch(annotationPathsHomologous(), error = function(e) list())
-        titles_map <- tryCatch(titlesHomologous(), error = function(e) list())
-
+    # Pure grouping calculation; preserve the existing scientific/order semantics.
+    computeHomoMultiTranscriptGeneGroups <- function(ids, meta_map, org_map, ann_map, titles_map) {
+        if (length(ids) == 0L) return(list())
         norm_key_local <- function(x) tolower(trimws(as.character(x %||% "")))
         safe_label <- function(x, fallback = "") {
             out <- trimws(as.character(x %||% ""))
@@ -10607,6 +10598,39 @@
         }
         names(groups) <- vapply(groups, function(g) as.character(g$key %||% ""), character(1))
         groups
+    }
+
+    homoMultiTranscriptGeneGroups <- local({
+        # One result per session, evaluated only by an actual reactive consumer.
+        # Canonical-copy creation changes whole maps without changing active IDs.
+        # Retain only active entries so those unrelated writes do not regroup.
+        previous_state <- NULL
+        previous_groups <- NULL
+        reactive({
+            ids <- as.character(sortedPlotIdsHomologous() %||% character(0))
+            ids <- ids[nzchar(ids)]
+            active_entries <- function(map) {
+                stats::setNames(lapply(ids, function(pid) {
+                    tryCatch(map[[pid]], error = function(e) NULL)
+                }), ids)
+            }
+            # Reuse state MUST remain a superset of every semantic input read by
+            # computeHomoMultiTranscriptGeneGroups: ordered active IDs and their
+            # metadata, organism, annotation and title entries. If the computation
+            # gains another dependency, update this reuse state accordingly.
+            state <- list(
+                ids = ids,
+                meta_map = active_entries(tryCatch(plotGeneMetaHomologous(), error = function(e) list())),
+                org_map = active_entries(tryCatch(organismInfoHomologous(), error = function(e) list())),
+                ann_map = active_entries(tryCatch(annotationPathsHomologous(), error = function(e) list())),
+                titles_map = active_entries(tryCatch(titlesHomologous(), error = function(e) list()))
+            )
+            if (identical(state, previous_state)) return(previous_groups)
+            groups <- do.call(computeHomoMultiTranscriptGeneGroups, state)
+            previous_state <<- state
+            previous_groups <<- groups
+            groups
+        })
     })
 
     homoAlignedSelectedGroupKey <- reactive({

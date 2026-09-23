@@ -1,0 +1,13 @@
+HMG_BODY_MS 1
+HMG_CHANGED ids,meta,org,ann,titles
+HMG_KEYS meta 1,2,3,4,5,6
+HMG_KEYS org 1,2,3,4,5,6
+HMG_KEYS ann 1,2,3,4,5,6
+HMG_KEYS titles 1,2,3,4,5,6
+HMG_BODY_MS 276
+HMG_CHANGED meta,org,ann,titles
+HMG_KEYS meta 1_c
+HMG_KEYS org 1_c
+HMG_KEYS ann 1_c
+HMG_KEYS titles 1_c
+HMG_BODY_MS 286

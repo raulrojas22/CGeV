@@ -1,0 +1,86 @@
+$`TP53-shaped`
+$`TP53-shaped`$before_calls
+[1] 4
+
+$`TP53-shaped`$after_calls
+[1] 1
+
+$`TP53-shaped`$before_ms
+[1] 59
+
+$`TP53-shaped`$after_ms
+[1] 76
+
+$`TP53-shaped`$assertions
+[1] "passed"
+
+
+$`BRCA1-shaped`
+$`BRCA1-shaped`$before_calls
+[1] 4
+
+$`BRCA1-shaped`$after_calls
+[1] 1
+
+$`BRCA1-shaped`$before_ms
+[1] 937
+
+$`BRCA1-shaped`$after_ms
+[1] 206
+
+$`BRCA1-shaped`$assertions
+[1] "passed"
+
+
+$`session-isolation`
+$`session-isolation`$before_calls
+[1] 4
+
+$`session-isolation`$after_calls
+[1] 1
+
+$`session-isolation`$before_ms
+[1] 64
+
+$`session-isolation`$after_ms
+[1] 16
+
+$`session-isolation`$assertions
+[1] "passed"
+
+
+$`TP53-real`
+$`TP53-real`$before_calls
+[1] 4
+
+$`TP53-real`$after_calls
+[1] 1
+
+$`TP53-real`$before_ms
+[1] 68
+
+$`TP53-real`$after_ms
+[1] 15
+
+$`TP53-real`$assertions
+[1] "passed"
+
+
+$`BRCA1-real`
+$`BRCA1-real`$before_calls
+[1] 4
+
+$`BRCA1-real`$after_calls
+[1] 1
+
+$`BRCA1-real`$before_ms
+[1] 1089
+
+$`BRCA1-real`$after_ms
+[1] 214
+
+$`BRCA1-real`$assertions
+[1] "passed"
+
+
+PASS: unchanged scientific body; exact groups/order/IDs/labels; lazy demand; stable count; invalidation; expansion; session isolation/closure.
