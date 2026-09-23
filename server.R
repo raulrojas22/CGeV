@@ -36557,6 +36557,37 @@
         stringAnnotationState$prune(live_keys)
     })
 
+    # Request snapshots remain session-local; never export these to a worker.
+    string_screen_context <- function() {
+        list(
+            homo = list(ids = activePlotIdsHomologous(), files = fileDataHomologous(),
+                        org = organismInfoHomologous(), paths = annotationPathsHomologous(),
+                        titles = titlesHomologous()),
+            ortho = list(ids = activePlotIdsOrthologous(), files = fileDataOrthologous(),
+                         org = organismInfoOrthologous(), paths = annotationPathsOrthologous(),
+                         titles = titlesOrthologous())
+        )
+    }
+    capture_string_screen_plans <- function(pid, ctx, snapshot = string_screen_context()) {
+        selected <- snapshot[[ctx]]
+        d <- list(file_data = selected$files[[pid]], org_info = selected$org[[pid]])
+        # Preserve the builder's selected-plot projection before screen lookup.
+        if (!is.null(d$file_data) && nrow(d$file_data) > 0L) get_string_annotation_ids(pid, ctx, d)
+        lapply(c("homo", "ortho"), function(ctx_name) {
+            current <- snapshot[[ctx_name]]
+            sources <- list()
+            for (i_id in current$ids %||% integer(0)) {
+                id_chr <- as.character(i_id)
+                file_data <- current$files[[id_chr]]
+                if (is.null(file_data) || nrow(file_data) == 0L) next
+                sources[[paste(ctx_name, id_chr, sep = ":")]] <- list(
+                    file_data = file_data, org_info = current$org[[id_chr]],
+                    annotation_path = current$paths[[id_chr]])
+            }
+            stringAnnotationState$screen_capture(sources)
+        })
+    }
+
     build_string_query_payload <- function(pid, ctx) {
         d <- get_chart_plot_data(pid, ctx)
         if (is.null(d$file_data) || nrow(d$file_data) == 0) {
@@ -37075,90 +37106,17 @@
         ) |> tagAppendAttributes(class = "string-network-modal"))
 
         perf_run <- app_perf_new_run("STRING")
-        payload_t0 <- if (isTRUE(app_perf_enabled())) app_perf_now() else NULL
-        query_payload <- build_string_query_payload(pid, ctx)
-        if (!is.null(payload_t0)) app_perf_mark_ms(perf_run, "payload_prepare_ms", app_perf_elapsed_ms(payload_t0), "STRING")
-        if (!is.null(query_payload$error_widget)) {
-            stringNetworkWidget(query_payload$error_widget)
-            return(invisible(NULL))
+        timing <- isTRUE(app_perf_enabled())
+        capture_t0 <- if (timing) app_perf_now() else NULL
+        req_id <- stringNetworkRequestState$id
+        context_snapshot <- string_screen_context()
+        request_current <- function() {
+            !session$isClosed() && identical(stringNetworkRequestState$id, req_id) &&
+                identical(selectedChartPlotId(), pid) && identical(selectedChartContext(), ctx) &&
+                identical(string_screen_context(), context_snapshot)
         }
-
-        req_id <- paste0("string_", as.integer(Sys.time()), "_", sample.int(1000000L, 1))
-        stringNetworkRequestState$id <- req_id
-        app_perf_mark(perf_run, "snapshot_ready", "STRING")
-
-        cache_t0 <- app_perf_now()
-        cached_payload <- tryCatch(string_try_cached_payload(query_payload, base_dir = "."), error = function(e) NULL)
-        app_perf_mark_ms(perf_run, "sync_cache_check_ms", app_perf_elapsed_ms(cache_t0), "STRING")
-        if (is.list(cached_payload)) {
-            display_payload <- tryCatch(
-                string_apply_display_roles(cached_payload, query_payload, base_dir = ".", resolve_missing = FALSE),
-                error = function(e) cached_payload
-            )
-            stringNetworkData(display_payload)
-            stringNetworkWidget(build_string_network_widget_from_data(
-                display_payload,
-                is_dark = identical(tolower(as.character(input$app_theme %||% "light")), "dark")
-            ))
-            app_perf_mark(perf_run, "persistent_cache_hit", "STRING")
-            return(invisible(NULL))
-        }
-        app_perf_mark(perf_run, "persistent_cache_miss", "STRING")
-
-        pending_key <- string_cache_hash(
-            "pending",
-            as.integer(query_payload$taxid),
-            query_payload$id_candidates,
-            as.integer(query_payload$required_score),
-            as.integer(query_payload$add_nodes)
-        )
-        pending <- get0(pending_key, envir = pendingStringPromises, inherits = FALSE, ifnotfound = NULL)
-        if (is.null(pending)) {
-            future_launch_t0 <- app_perf_now()
-            app_perf_mark(perf_run, "worker_launch_start", "STRING")
-            pending <- promises::future_promise({
-                string_future_worker(query_payload, cache_snapshot, base_dir = ".")
-            }, seed = TRUE, globals = string_future_globals(query_payload),
-               packages = c("httr2", "magrittr"))
-            assign(pending_key, pending, envir = pendingStringPromises)
-            app_perf_mark_ms(perf_run, "worker_launch_ms", app_perf_elapsed_ms(future_launch_t0), "STRING")
-        } else {
-            app_perf_mark(perf_run, "joined_inflight_request", "STRING")
-        }
-
-        pending %...>% (function(result) {
-            if (exists(pending_key, envir = pendingStringPromises, inherits = FALSE)) {
-                rm(list = pending_key, envir = pendingStringPromises)
-            }
-            if (identical(stringNetworkRequestState$id, req_id)) {
-                if (is.list(result) && isTRUE(result$ok) && is.list(result$payload)) {
-                    display_payload <- tryCatch(
-                        string_apply_display_roles(result$payload, query_payload, base_dir = "."),
-                        error = function(e) result$payload
-                    )
-                    stringNetworkData(display_payload)
-                    stringNetworkWidget(build_string_network_widget_from_data(
-                        display_payload,
-                        is_dark = identical(tolower(as.character(input$app_theme %||% "light")), "dark")
-                    ))
-                    app_perf_mark(perf_run, if (isTRUE(result$cache_hit)) "worker_cache_hit" else "network_ready", "STRING")
-                } else {
-                    reason <- as.character(result$reason %||% "lookup_failed")
-                    label <- if (identical(reason, "not_found")) {
-                        sprintf("Protein not found in STRING\n%s (taxon %s)", query_payload$gene_name, query_payload$taxid)
-                    } else {
-                        "No interactions found"
-                    }
-                    stringNetworkWidget(build_string_error_widget(label))
-                    app_perf_mark(perf_run, paste0("empty_result=", reason), "STRING")
-                }
-            }
-            NULL
-        }) %...!% (function(err) {
-            if (exists(pending_key, envir = pendingStringPromises, inherits = FALSE)) {
-                rm(list = pending_key, envir = pendingStringPromises)
-            }
-            if (identical(stringNetworkRequestState$id, req_id)) {
+        fail_request <- function(err) {
+            if (request_current()) {
                 short_msg <- trimws(as.character(conditionMessage(err) %||% "Unknown error"))
                 short_msg <- gsub("[\r\n]+", " ", short_msg)
                 short_msg <- stringr::str_trunc(short_msg, width = 120)
@@ -37171,7 +37129,123 @@
                 app_perf_mark(perf_run, paste0("error=", short_msg), "STRING")
             }
             NULL
-        })
+        }
+        continue_network <- function() {
+            if (!request_current()) return(invisible(NULL))
+            payload_t0 <- if (isTRUE(app_perf_enabled())) app_perf_now() else NULL
+            query_payload <- build_string_query_payload(pid, ctx)
+            if (!is.null(payload_t0)) app_perf_mark_ms(perf_run, "payload_prepare_ms", app_perf_elapsed_ms(payload_t0), "STRING")
+            if (!is.null(query_payload$error_widget)) {
+                stringNetworkWidget(query_payload$error_widget)
+                return(invisible(NULL))
+            }
+
+            app_perf_mark(perf_run, "snapshot_ready", "STRING")
+
+            cache_t0 <- app_perf_now()
+            cached_payload <- tryCatch(string_try_cached_payload(query_payload, base_dir = "."), error = function(e) NULL)
+            app_perf_mark_ms(perf_run, "sync_cache_check_ms", app_perf_elapsed_ms(cache_t0), "STRING")
+            if (is.list(cached_payload)) {
+                display_payload <- tryCatch(
+                    string_apply_display_roles(cached_payload, query_payload, base_dir = ".", resolve_missing = FALSE),
+                    error = function(e) cached_payload
+                )
+                stringNetworkData(display_payload)
+                stringNetworkWidget(build_string_network_widget_from_data(
+                    display_payload,
+                    is_dark = identical(tolower(as.character(input$app_theme %||% "light")), "dark")
+                ))
+                app_perf_mark(perf_run, "persistent_cache_hit", "STRING")
+                return(invisible(NULL))
+            }
+            app_perf_mark(perf_run, "persistent_cache_miss", "STRING")
+
+            pending_key <- string_cache_hash(
+                "pending",
+                as.integer(query_payload$taxid),
+                query_payload$id_candidates,
+                as.integer(query_payload$required_score),
+                as.integer(query_payload$add_nodes)
+            )
+            pending <- get0(pending_key, envir = pendingStringPromises, inherits = FALSE, ifnotfound = NULL)
+            if (is.null(pending)) {
+                future_launch_t0 <- app_perf_now()
+                app_perf_mark(perf_run, "worker_launch_start", "STRING")
+                pending <- promises::future_promise({
+                    string_future_worker(query_payload, cache_snapshot, base_dir = ".")
+                }, seed = TRUE, globals = string_future_globals(query_payload),
+                   packages = c("httr2", "magrittr"))
+                assign(pending_key, pending, envir = pendingStringPromises)
+                app_perf_mark_ms(perf_run, "worker_launch_ms", app_perf_elapsed_ms(future_launch_t0), "STRING")
+            } else {
+                app_perf_mark(perf_run, "joined_inflight_request", "STRING")
+            }
+
+            pending %...>% (function(result) {
+                if (exists(pending_key, envir = pendingStringPromises, inherits = FALSE)) {
+                    rm(list = pending_key, envir = pendingStringPromises)
+                }
+                if (request_current()) {
+                    if (is.list(result) && isTRUE(result$ok) && is.list(result$payload)) {
+                        display_payload <- tryCatch(
+                            string_apply_display_roles(result$payload, query_payload, base_dir = "."),
+                            error = function(e) result$payload
+                        )
+                        stringNetworkData(display_payload)
+                        stringNetworkWidget(build_string_network_widget_from_data(
+                            display_payload,
+                            is_dark = identical(tolower(as.character(input$app_theme %||% "light")), "dark")
+                        ))
+                        app_perf_mark(perf_run, if (isTRUE(result$cache_hit)) "worker_cache_hit" else "network_ready", "STRING")
+                    } else {
+                        reason <- as.character(result$reason %||% "lookup_failed")
+                        label <- if (identical(reason, "not_found")) {
+                            sprintf("Protein not found in STRING\n%s (taxon %s)", query_payload$gene_name, query_payload$taxid)
+                        } else {
+                            "No interactions found"
+                        }
+                        stringNetworkWidget(build_string_error_widget(label))
+                        app_perf_mark(perf_run, paste0("empty_result=", reason), "STRING")
+                    }
+                }
+                NULL
+            }) %...!% (function(err) {
+                if (exists(pending_key, envir = pendingStringPromises, inherits = FALSE)) {
+                    rm(list = pending_key, envir = pendingStringPromises)
+                }
+                fail_request(err)
+            })
+        }
+        tryCatch({
+            screen_plans <- capture_string_screen_plans(pid, ctx, context_snapshot)
+            screen_batches <- lapply(screen_plans, function(plan) plan$attrs)
+            if (any(lengths(screen_batches) > 0L)) {
+                submitted <- if (timing) as.numeric(Sys.time()) else NULL
+                pending_screen <- promises::future_promise(
+                    string_screen_future_worker(screen_batches, timing),
+                    globals = string_screen_future_globals(screen_batches, timing),
+                    packages = "stringr", seed = TRUE
+                )
+                pending_screen %...>% (function(result) {
+                    if (!request_current()) return(NULL)
+                    merge_t0 <- if (timing) app_perf_now() else NULL
+                    if (timing) {
+                        app_perf_mark_ms(perf_run, "screen_dispatch_wait_ms", (result$timing$started - submitted) * 1000, "STRING")
+                        app_perf_mark_ms(perf_run, "screen_worker_compute_ms", result$timing$compute_ms, "STRING")
+                        app_perf_mark_ms(perf_run, "screen_return_ms", (as.numeric(Sys.time()) - result$timing$finished) * 1000, "STRING")
+                        app_perf_mark(perf_run, paste0("screen_worker_pid=", result$timing$pid), "STRING")
+                    }
+                    for (i in seq_along(screen_plans)) stringAnnotationState$screen_merge(screen_plans[[i]], result$rows[[i]])
+                    if (timing) app_perf_mark_ms(perf_run, "screen_merge_ms", app_perf_elapsed_ms(merge_t0), "STRING")
+                    continue_network()
+                }) %...!% fail_request
+            } else {
+                continue_network()
+            }
+        }, error = fail_request)
+        if (timing) app_perf_mark_ms(perf_run, "screen_capture_submit_ms", app_perf_elapsed_ms(capture_t0), "STRING")
+        invisible(NULL)
+
     })
 
     observeEvent(input$string_network_closed, {
