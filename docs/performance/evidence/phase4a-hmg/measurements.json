@@ -1,0 +1,125 @@
+[
+  {
+    "variant": "before",
+    "gene": "TP53",
+    "run": "HOMO_SEARCH-020519848",
+    "hmg_count": 2,
+    "hmg_each_ms": [
+      44.0,
+      22.0
+    ],
+    "hmg_total_ms": 66.0,
+    "search_observer_ms": 589.0,
+    "append_end_to_render_start_ms": 172,
+    "first_plot_ready_ms": 2098.0,
+    "first_websocket_message_ms": 0.6,
+    "complete_card_client_ms": 2273.3,
+    "max_event_loop_lag_ms": 2088.0,
+    "main_rss_mib": 842.9
+  },
+  {
+    "variant": "before",
+    "gene": "BRCA1",
+    "run": "HOMO_SEARCH-020830788",
+    "hmg_count": 2,
+    "hmg_each_ms": [
+      359.0,
+      669.0
+    ],
+    "hmg_total_ms": 1028.0,
+    "search_observer_ms": 3477.0,
+    "append_end_to_render_start_ms": 1971,
+    "first_plot_ready_ms": 7657.0,
+    "first_websocket_message_ms": 5.9,
+    "complete_card_client_ms": 8105.6,
+    "max_event_loop_lag_ms": 7654.0,
+    "main_rss_mib": 814.1
+  },
+  {
+    "variant": "after",
+    "gene": "TP53",
+    "run": "HOMO_SEARCH-092158254",
+    "hmg_count": 1,
+    "hmg_each_ms": [
+      29.0
+    ],
+    "hmg_total_ms": 29.0,
+    "search_observer_ms": 549.0,
+    "append_end_to_render_start_ms": 157,
+    "first_plot_ready_ms": 2331.0,
+    "first_websocket_message_ms": 0.9,
+    "complete_card_client_ms": 2490.9,
+    "max_event_loop_lag_ms": 2335.0,
+    "main_rss_mib": 586.2
+  },
+  {
+    "variant": "after",
+    "gene": "BRCA1",
+    "run": "HOMO_SEARCH-092545202",
+    "hmg_count": 1,
+    "hmg_each_ms": [
+      321.0
+    ],
+    "hmg_total_ms": 321.0,
+    "search_observer_ms": 1769.0,
+    "append_end_to_render_start_ms": 1248,
+    "first_plot_ready_ms": 4092.0,
+    "first_websocket_message_ms": 0.7,
+    "complete_card_client_ms": 4513.2,
+    "max_event_loop_lag_ms": 4170.0,
+    "main_rss_mib": 1108.0
+  },
+  {
+    "variant": "reference",
+    "gene": "TP53",
+    "run": "HOMO_SEARCH-143835866",
+    "hmg_count": 2,
+    "hmg_each_ms": [
+      34.0,
+      23.0
+    ],
+    "hmg_total_ms": 57.0,
+    "search_observer_ms": 531.0,
+    "append_end_to_render_start_ms": 67,
+    "first_plot_ready_ms": 2285.0,
+    "first_websocket_message_ms": 5.5,
+    "complete_card_client_ms": 2438.8,
+    "max_event_loop_lag_ms": 2265.0,
+    "main_rss_mib": 514.5
+  },
+  {
+    "variant": "reference",
+    "gene": "BRCA1",
+    "run": "HOMO_SEARCH-144415572",
+    "hmg_count": 2,
+    "hmg_each_ms": [
+      320.0,
+      406.0
+    ],
+    "hmg_total_ms": 726.0,
+    "search_observer_ms": 2059.0,
+    "append_end_to_render_start_ms": 1716,
+    "first_plot_ready_ms": 4816.0,
+    "first_websocket_message_ms": 0.8,
+    "complete_card_client_ms": 5218.4,
+    "max_event_loop_lag_ms": 4890.0,
+    "main_rss_mib": 1102.3
+  },
+  {
+    "variant": "final",
+    "gene": "BRCA1",
+    "run": "HOMO_SEARCH-144705624",
+    "hmg_count": 1,
+    "hmg_each_ms": [
+      360.0
+    ],
+    "hmg_total_ms": 360.0,
+    "search_observer_ms": 4219.0,
+    "append_end_to_render_start_ms": 1407,
+    "first_plot_ready_ms": 7407.0,
+    "first_websocket_message_ms": 0.5,
+    "complete_card_client_ms": 8131.5,
+    "max_event_loop_lag_ms": 7544.0,
+    "main_rss_mib": 928.3
+  }
+]
