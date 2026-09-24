@@ -68,6 +68,15 @@ test_that("non-numeric and multibyte content is preserved", {
     expect_true(grepl("x='4.57'", out, fixed = TRUE))
 })
 
+test_that("candidates that only appear in text nodes do not trigger tag work", {
+    html <- paste0(
+        "<svg>",
+        paste(rep("<text>6.5345 Mb</text><rect x='1.5'/>", 100), collapse = " "),
+        "</svg>"
+    )
+    expect_identical(compact_svg(html), gsub(">\\s+<", "><", html, perl = TRUE))
+})
+
 test_that("fast path is exactly whitespace removal when no candidate exists", {
     html <- paste0(
         "<svg viewBox='0 0 1202.4 82.8'>\n",

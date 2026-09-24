@@ -254,12 +254,23 @@ compact_girafe_svg_html <- function(html, decimals = 2L) {
         return(out)
     }
 
-    # The numeric pass below can only rewrite ASCII decimals carrying at least
-    # four fractional digits inside opening tags. When no such candidate exists
-    # anywhere in the payload, tag extraction and replacement are provably
-    # no-ops; skipping them avoids hundreds of milliseconds of UTF-8
-    # gregexpr/regmatches work on large SVGs for no byte change.
-    if (!grepl("[0-9]+\\.[0-9]{4,}", out, useBytes = TRUE)) {
+    # The numeric pass below only rewrites ASCII decimals carrying at least
+    # four fractional digits inside opening tags; text nodes (visible labels,
+    # tooltips) are intentionally preserved. When every candidate sits outside
+    # any tag, tag extraction and replacement are provably no-ops, so skip them
+    # and avoid hundreds of milliseconds of UTF-8 gregexpr/regmatches work on
+    # large SVGs. Tag membership matches the "<[^>]+>" extractor exactly: a
+    # position is inside a tag when the closest preceding "<" comes after the
+    # closest preceding ">".
+    candidate_pos <- gregexpr("[0-9]+\\.[0-9]{4,}", out, perl = TRUE, useBytes = TRUE)[[1]]
+    if (candidate_pos[1] == -1L) {
+        return(out)
+    }
+    open_pos <- gregexpr("<", out, fixed = TRUE, useBytes = TRUE)[[1]]
+    close_pos <- gregexpr(">", out, fixed = TRUE, useBytes = TRUE)[[1]]
+    open_before <- c(0, open_pos)[findInterval(candidate_pos, open_pos) + 1L]
+    close_before <- c(0, close_pos)[findInterval(candidate_pos, close_pos) + 1L]
+    if (!any(open_before > close_before)) {
         return(out)
     }
 
