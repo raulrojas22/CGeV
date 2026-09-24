@@ -10105,6 +10105,7 @@
         closeObserversBoundOrthologous_rv = closeObserversBoundOrthologous,
         homoRenderedPlotIds_rv = homoRenderedPlotIds,
         homoInsertedCardIds_rv = homoInsertedCardIds,
+        homoHydratedIsoformIds_rv = homoHydratedIsoformIds,
         homoFooterOutputsBound_rv = homoFooterOutputsBound,
         homoDownloadOutputsBound_rv = homoDownloadOutputsBound,
         homoPlotTimingTracker_rv = homoPlotTimingTracker,
@@ -21746,7 +21747,8 @@
             }
         }
         hydrated_now <- isolate(as.character(homoHydratedIsoformIds() %||% character(0)))
-        hydrated_keep <- setdiff(hydrated_now, paste0(ids_chr, "_c"))
+        hydrated_remove <- unique(c(ids_chr, paste0(ids_chr, "_c")))
+        hydrated_keep <- setdiff(hydrated_now, hydrated_remove)
         if (!identical(hydrated_now, hydrated_keep)) {
             homoHydratedIsoformIds(hydrated_keep)
         }

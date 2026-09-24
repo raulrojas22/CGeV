@@ -108,23 +108,23 @@ shiny::testServer(server_fun, {
     " footer_bound=[", paste(footer_after_clear, collapse = ","), "]\n",
     sep = ""
   )
-  # Pre-existing clear-path note: clear_homologous_visualizations() removes the
-  # card DOM but does not reset homoHydratedIsoformIds(), and the footer
-  # observer already keeps hydrated ids bound after clear. The lazy download
-  # observer intentionally mirrors that lifecycle: after clear the bound set is
-  # a subset of the still-hydrated ids, and no hidden/non-hydrated id is bound.
+  # Phase 4B.5: whole-panel clear now resets the hydrated lifecycle, so every
+  # per-card binding derived from it must be released.
   assert(
-    all(bound_after_clear %in% unique(c(hydrated_after_clear))),
-    "bound downloads after clear must be a subset of the hydrated lifecycle set"
+    identical(hydrated_after_clear, character(0)),
+    "hydrated isoform lifecycle state must be reset after clear"
   )
-  assert(!("1" %in% bound_after_clear), "canonical card download must be unbound after clear")
+  assert(
+    identical(bound_after_clear, character(0)),
+    "download handlers must be unbound after clear"
+  )
+  assert(
+    identical(footer_after_clear, character(0)),
+    "footer outputs must be unbound after clear"
+  )
   assert(
     !any(hidden_remaining %in% bound_after_clear),
     "hidden non-hydrated ids must never be bound after clear"
-  )
-  assert(
-    setequal(bound_after_clear, footer_after_clear),
-    "download and footer bound sets must follow the same lifecycle after clear"
   )
 })
 
