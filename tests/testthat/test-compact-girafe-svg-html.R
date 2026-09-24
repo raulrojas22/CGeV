@@ -112,3 +112,51 @@ test_that("candidate matches reference byte-for-byte on mixed payloads", {
         )
     }
 })
+
+test_that("NA input preserves baseline behavior", {
+    expect_identical(compact_svg(NA_character_), reference_compact(NA_character_))
+    expect_identical(compact_svg(NA_character_), NA_character_)
+})
+
+test_that("multi-element vectors preserve baseline behavior", {
+    with_candidate <- c("<svg><rect x='1.5'/></svg>", "<svg><rect x='1.2345'/></svg>")
+    no_candidate <- c("<svg><rect x='1.5'/></svg>", "<svg><rect x='2.5'/></svg>")
+    three_elements <- c(
+        "<svg><rect x='1.5'/></svg>",
+        "<svg><rect x='2.5'/></svg>",
+        "<svg><rect x='1.2345'/></svg>"
+    )
+    expect_identical(compact_svg(with_candidate), reference_compact(with_candidate))
+    expect_identical(compact_svg(no_candidate), reference_compact(no_candidate))
+    expect_identical(compact_svg(three_elements), reference_compact(three_elements))
+})
+
+test_that("tag-boundary and delimiter edge cases match baseline", {
+    raw_gt <- "<svg><rect title='a > b' x='1.2345'/></svg>"
+    expect_identical(compact_svg(raw_gt), reference_compact(raw_gt))
+    expect_identical(compact_svg(raw_gt), raw_gt)
+    escaped_gt <- "<svg><rect title='a &gt; 1.2345' x='2.3456'/></svg>"
+    expect_identical(compact_svg(escaped_gt), reference_compact(escaped_gt))
+    expect_identical(compact_svg(escaped_gt), "<svg><rect title='a &gt; 1.23' x='2.35'/></svg>")
+    comment <- "<svg><!-- 1.2345 --></svg>"
+    expect_identical(compact_svg(comment), reference_compact(comment))
+    expect_identical(compact_svg(comment), "<svg><!-- 1.23 --></svg>")
+    cdata <- "<svg><![CDATA[ 1.2345 ]]></svg>"
+    expect_identical(compact_svg(cdata), reference_compact(cdata))
+    expect_identical(compact_svg(cdata), "<svg><![CDATA[ 1.23 ]]></svg>")
+})
+
+test_that("fractional-digit boundary and quoting are exact", {
+    expect_identical(compact_svg("<svg><rect x='1.234'/></svg>"), "<svg><rect x='1.234'/></svg>")
+    expect_identical(compact_svg("<svg><rect x='1.2345'/></svg>"), "<svg><rect x='1.23'/></svg>")
+    expect_identical(compact_svg("<svg><rect x=\"1.2345\"/></svg>"), "<svg><rect x=\"1.23\"/></svg>")
+})
+
+test_that("multibyte prefixes and overflow values match baseline", {
+    multibyte <- paste0("caf\u00e9\u03b1", "<svg><rect x='1.2345'/></svg>")
+    expect_identical(compact_svg(multibyte), reference_compact(multibyte))
+    expect_identical(compact_svg(multibyte), paste0("caf\u00e9\u03b1", "<svg><rect x='1.23'/></svg>"))
+    overflow <- paste0("<svg><rect x='", strrep("9", 320), ".99999'/></svg>")
+    expect_identical(compact_svg(overflow), reference_compact(overflow))
+    expect_identical(compact_svg(overflow), overflow)
+})
