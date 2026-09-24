@@ -254,6 +254,15 @@ compact_girafe_svg_html <- function(html, decimals = 2L) {
         return(out)
     }
 
+    # The numeric pass below can only rewrite ASCII decimals carrying at least
+    # four fractional digits inside opening tags. When no such candidate exists
+    # anywhere in the payload, tag extraction and replacement are provably
+    # no-ops; skipping them avoids hundreds of milliseconds of UTF-8
+    # gregexpr/regmatches work on large SVGs for no byte change.
+    if (!grepl("[0-9]+\\.[0-9]{4,}", out, useBytes = TRUE)) {
+        return(out)
+    }
+
     # ggplot-generated SVG coordinates often carry far more precision than the
     # browser can show. Only opening-tag attributes are compacted: visible labels,
     # tooltips and other text nodes must retain their genomic precision.
