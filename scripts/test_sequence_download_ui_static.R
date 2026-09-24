@@ -74,4 +74,43 @@ expect_pattern(
   "multi-record segmented FASTA builder exists"
 )
 
+# Phase 4B.4B: the homologous download observer must follow the DOM/hydrated
+# card lifecycle (same derivation as the footer observer), not all active ids.
+dl_start <- regexpr(
+  'outputOptions\\(output, "download_ortho_summary_csv", suspendWhenHidden = FALSE\\)',
+  server_txt
+)
+dl_end_matches <- gregexpr('activePlotIdsOrthologous\\(\\)', server_txt)[[1L]]
+dl_end_matches <- dl_end_matches[dl_end_matches > dl_start[[1L]]]
+dl_end <- if (length(dl_end_matches)) dl_end_matches[[1L]] else -1L
+if (dl_start[[1]] < 0 || dl_end < 0) {
+  stop("Could not locate the homologous download observer region", call. = FALSE)
+}
+homolog_download_observer <- substr(
+  server_txt,
+  dl_start[[1]] + attr(dl_start, "match.length"),
+  dl_end - 1L
+)
+expect_pattern(
+  homolog_download_observer,
+  'homoInsertedCardIds\\(\\)',
+  "homologous download observer follows admitted/DOM-present cards"
+)
+expect_pattern(
+  homolog_download_observer,
+  'homoHydratedIsoformIds\\(\\)',
+  "homologous download observer follows hydrated isoform cards"
+)
+expect_pattern(
+  homolog_download_observer,
+  'get_active_homologous_copy_ids\\(ids_chr\\)',
+  "homologous download observer keeps the copy-id lifecycle"
+)
+if (grepl('activePlotIdsHomologous\\(\\)', homolog_download_observer, perl = TRUE)) {
+  stop(
+    "Homologous download observer must not register handlers for every active transcript id",
+    call. = FALSE
+  )
+}
+
 cat("sequence-download-ui-static-ok\n")

@@ -36477,9 +36477,20 @@
 
 
     observe({
-        ids_chr <- as.character(activePlotIdsHomologous() %||% integer(0))
-        ids_chr <- ids_chr[nzchar(ids_chr)]
-        keep_ids <- unique(c(ids_chr, get_active_homologous_copy_ids(ids_chr)))
+        # Downloads are only reachable through a card's download buttons, so
+        # register only for cards that exist in the DOM (admitted primary cards
+        # and hydrated isoform cards). This mirrors the footer observer's
+        # lifecycle derivation and avoids registering ~5 handlers per hidden
+        # transcript on every search.
+        sorted_ids <- as.character(sortedPlotIdsHomologous() %||% integer(0))
+        inserted_ids <- as.character(homoInsertedCardIds() %||% character(0))
+        ids_chr <- intersect(sorted_ids[nzchar(sorted_ids)], inserted_ids[nzchar(inserted_ids)])
+        hydrated_isoform_ids <- as.character(homoHydratedIsoformIds() %||% character(0))
+        keep_ids <- unique(c(
+            ids_chr,
+            hydrated_isoform_ids[nzchar(hydrated_isoform_ids)],
+            get_active_homologous_copy_ids(ids_chr)
+        ))
         bound_now <- as.character(isolate(homoDownloadOutputsBound()) %||% character(0))
         remove_ids <- setdiff(bound_now, keep_ids)
         add_ids <- setdiff(keep_ids, bound_now)
