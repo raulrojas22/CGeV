@@ -34,6 +34,7 @@ init_plot_lifecycle_domain <- function(
     closeObserversBoundOrthologous_rv,
     homoRenderedPlotIds_rv,
     homoInsertedCardIds_rv,
+    homoHydratedIsoformIds_rv = NULL,
     homoFooterOutputsBound_rv,
     homoDownloadOutputsBound_rv,
     homoPlotTimingTracker_rv,
@@ -633,6 +634,13 @@ init_plot_lifecycle_domain <- function(
         if (!identical(inserted_now, inserted_keep)) {
             homoInsertedCardIds_rv(inserted_keep)
         }
+        if (is.function(homoHydratedIsoformIds_rv)) {
+            hydrated_now <- as.character(homoHydratedIsoformIds_rv() %||% character(0))
+            hydrated_keep <- setdiff(hydrated_now, id_chr)
+            if (!identical(hydrated_now, hydrated_keep)) {
+                homoHydratedIsoformIds_rv(hydrated_keep)
+            }
+        }
         drop_plot_timing_id_fn(homoPlotTimingTracker_rv, id_chr)
         invisible(NULL)
     }
@@ -686,6 +694,9 @@ init_plot_lifecycle_domain <- function(
         closeObserversBoundHomologous_rv(character())
         homoRenderedPlotIds_rv(character())
         homoInsertedCardIds_rv(character())
+        if (is.function(homoHydratedIsoformIds_rv)) {
+            homoHydratedIsoformIds_rv(character())
+        }
         homoFooterOutputsBound_rv(character())
         homoDownloadOutputsBound_rv(character())
         homoPlotTimingTracker_rv(empty_plot_timing_tracker_fn())
