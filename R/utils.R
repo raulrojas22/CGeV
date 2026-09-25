@@ -254,6 +254,41 @@ compact_girafe_svg_html <- function(html, decimals = 2L) {
         return(out)
     }
 
+    # The numeric pass below only rewrites ASCII decimals carrying at least
+    # four fractional digits inside opening tags; text nodes (visible labels,
+    # tooltips) are intentionally preserved. When every candidate sits outside
+    # any tag, tag extraction and replacement are provably no-ops, so skip them
+    # and avoid hundreds of milliseconds of UTF-8 gregexpr/regmatches work on
+    # large SVGs. Tag membership matches the "<[^>]+>" extractor exactly: a
+    # position is inside a tag when the closest preceding "<" comes after the
+    # closest preceding ">". The shortcut only applies to a single, non-missing
+    # string; vectors and NA fall through to the original transformation.
+    # When tags exist, the original pipeline rebuilds the string through
+    # regmatches<-, which strips attributes (keeping names) and lets paste0
+    # normalize the encoding; with no tags it returns out unchanged. Reproduce
+    # that observable result without performing the tag extraction.
+    skip_tag_pipeline_return <- function(value) {
+        if (!grepl("<[^>]+>", value, perl = TRUE, useBytes = TRUE)) {
+            return(value)
+        }
+        compacted <- paste0(value, collapse = "")
+        names(compacted) <- names(value)
+        compacted
+    }
+    if (length(out) == 1L && !is.na(out[1])) {
+        candidate_pos <- gregexpr("[0-9]+\\.[0-9]{4,}", out, perl = TRUE, useBytes = TRUE)[[1]]
+        if (candidate_pos[1] == -1L) {
+            return(skip_tag_pipeline_return(out))
+        }
+        open_pos <- gregexpr("<", out, fixed = TRUE, useBytes = TRUE)[[1]]
+        close_pos <- gregexpr(">", out, fixed = TRUE, useBytes = TRUE)[[1]]
+        open_before <- c(0, open_pos)[findInterval(candidate_pos, open_pos) + 1L]
+        close_before <- c(0, close_pos)[findInterval(candidate_pos, close_pos) + 1L]
+        if (!any(open_before > close_before)) {
+            return(skip_tag_pipeline_return(out))
+        }
+    }
+
     # ggplot-generated SVG coordinates often carry far more precision than the
     # browser can show. Only opening-tag attributes are compacted: visible labels,
     # tooltips and other text nodes must retain their genomic precision.
