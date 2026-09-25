@@ -263,17 +263,29 @@ compact_girafe_svg_html <- function(html, decimals = 2L) {
     # position is inside a tag when the closest preceding "<" comes after the
     # closest preceding ">". The shortcut only applies to a single, non-missing
     # string; vectors and NA fall through to the original transformation.
+    # When tags exist, the original pipeline rebuilds the string through
+    # regmatches<-, which strips attributes (keeping names) and lets paste0
+    # normalize the encoding; with no tags it returns out unchanged. Reproduce
+    # that observable result without performing the tag extraction.
+    skip_tag_pipeline_return <- function(value) {
+        if (!grepl("<[^>]+>", value, perl = TRUE, useBytes = TRUE)) {
+            return(value)
+        }
+        compacted <- paste0(value, collapse = "")
+        names(compacted) <- names(value)
+        compacted
+    }
     if (length(out) == 1L && !is.na(out[1])) {
         candidate_pos <- gregexpr("[0-9]+\\.[0-9]{4,}", out, perl = TRUE, useBytes = TRUE)[[1]]
         if (candidate_pos[1] == -1L) {
-            return(out)
+            return(skip_tag_pipeline_return(out))
         }
         open_pos <- gregexpr("<", out, fixed = TRUE, useBytes = TRUE)[[1]]
         close_pos <- gregexpr(">", out, fixed = TRUE, useBytes = TRUE)[[1]]
         open_before <- c(0, open_pos)[findInterval(candidate_pos, open_pos) + 1L]
         close_before <- c(0, close_pos)[findInterval(candidate_pos, close_pos) + 1L]
         if (!any(open_before > close_before)) {
-            return(out)
+            return(skip_tag_pipeline_return(out))
         }
     }
 

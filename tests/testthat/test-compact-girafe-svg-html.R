@@ -160,3 +160,82 @@ test_that("multibyte prefixes and overflow values match baseline", {
     expect_identical(compact_svg(overflow), reference_compact(overflow))
     expect_identical(compact_svg(overflow), overflow)
 })
+
+test_that("attributes and class follow baseline semantics", {
+    classed <- structure("<svg><rect x='1.5'/></svg>", class = "html")
+    expect_identical(compact_svg(classed), reference_compact(classed))
+    expect_null(attributes(compact_svg(classed)))
+    custom <- structure("<svg><rect x='1.5'/></svg>", foo = "bar")
+    expect_identical(compact_svg(custom), reference_compact(custom))
+    expect_null(attributes(compact_svg(custom)))
+    named <- structure("<svg><rect x='1.5'/></svg>", names = "nm")
+    expect_identical(compact_svg(named), reference_compact(named))
+    expect_identical(names(compact_svg(named)), "nm")
+    dimmed <- structure("<svg><rect x='1.5'/></svg>", dim = 1L)
+    expect_identical(compact_svg(dimmed), reference_compact(dimmed))
+    expect_null(attributes(compact_svg(dimmed)))
+})
+
+test_that("tag-free attributed input is returned unchanged", {
+    plain_classed <- structure("plain text", class = "html")
+    expect_identical(compact_svg(plain_classed), reference_compact(plain_classed))
+    expect_identical(compact_svg(plain_classed), plain_classed)
+    plain_named <- structure("plain text", names = "nm")
+    expect_identical(compact_svg(plain_named), reference_compact(plain_named))
+    expect_identical(compact_svg(plain_named), plain_named)
+})
+
+test_that("Latin-1 and bytes-marked inputs match baseline raw bytes", {
+    latin1 <- iconv("<svg><text>caf\u00e9</text><rect x='1.5'/></svg>", to = "latin1")
+    skip_if(is.na(latin1), "latin1 conversion unavailable on this platform")
+    out <- compact_svg(latin1)
+    ref <- reference_compact(latin1)
+    expect_identical(out, ref)
+    expect_identical(Encoding(out), "UTF-8")
+    expect_identical(charToRaw(out), charToRaw(ref))
+    expect_true(any(as.integer(charToRaw(out)) == 0xc3L))
+    bytes_marked <- local({
+        x <- rawToChar(as.raw(c(0x3c, 0x73, 0x76, 0x67, 0x3e, 0xc3, 0xa9, 0x3c, 0x78, 0x3e)))
+        Encoding(x) <- "bytes"
+        x
+    })
+    expect_identical(compact_svg(bytes_marked), reference_compact(bytes_marked))
+    expect_identical(charToRaw(compact_svg(bytes_marked)), charToRaw(bytes_marked))
+    expect_identical(Encoding(compact_svg(bytes_marked)), "bytes")
+})
+
+test_that("the fast branch skips tag extraction for candidate-free payloads", {
+    probe_env <- new.env(parent = compact_env)
+    probe_log <- new.env(parent = emptyenv())
+    probe_log$calls <- character(0)
+    probe_env$gregexpr <- function(pattern, text, ...) {
+        probe_log$calls <- c(probe_log$calls, paste0("gregexpr:", pattern, ":", isTRUE(list(...)$useBytes)))
+        base::gregexpr(pattern, text, ...)
+    }
+    probe_env$grepl <- function(pattern, text, ...) {
+        probe_log$calls <- c(probe_log$calls, paste0("grepl:", pattern, ":", isTRUE(list(...)$useBytes)))
+        base::grepl(pattern, text, ...)
+    }
+    probe <- compact_svg
+    environment(probe) <- probe_env
+    payload <- paste0("<svg>", paste(rep("<rect x='1.5'/>", 2000), collapse = ""), "</svg>")
+    out <- probe(payload)
+    expect_identical(out, gsub(">\\s+<", "><", payload, perl = TRUE))
+    expect_false(any(grepl("gregexpr:<[^>]+>", probe_log$calls, fixed = TRUE)))
+    expect_true(any(grepl("grepl:<[^>]+>:", probe_log$calls, fixed = TRUE)))
+})
+
+test_that("the slow branch still runs the original tag pipeline", {
+    probe_env <- new.env(parent = compact_env)
+    probe_log <- new.env(parent = emptyenv())
+    probe_log$calls <- character(0)
+    probe_env$gregexpr <- function(pattern, text, ...) {
+        probe_log$calls <- c(probe_log$calls, paste0("gregexpr:", pattern, ":", isTRUE(list(...)$useBytes)))
+        base::gregexpr(pattern, text, ...)
+    }
+    probe <- compact_svg
+    environment(probe) <- probe_env
+    payload <- "<svg><rect x='1.2345'/></svg>"
+    expect_identical(probe(payload), reference_compact(payload))
+    expect_true(any(grepl("gregexpr:<[^>]+>:FALSE", probe_log$calls, fixed = TRUE)))
+})
