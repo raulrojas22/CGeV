@@ -41,7 +41,7 @@
     "dataset:benchmark": "node scripts/benchmark-cache.js"
   },
   "devDependencies": {
-    "electron": "42.6.1",
+    "electron": "44.4.3",
     "electron-builder": "26.15.3",
     "js-yaml": "4.3.2",
     "yazl": "3.3.1"
