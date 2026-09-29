@@ -436,9 +436,16 @@ ncbi_resolve_cached_path <- function(path) {
     if (!nzchar(p) || is.na(p)) return("")
     if (grepl("^(/|~)", p)) return(path.expand(p))
     p_norm <- sub("^\\./", "", p)
+    root <- if (exists("get_cgv_data_root", mode = "function")) {
+        get_cgv_data_root(".")
+    } else {
+        "."
+    }
+    rooted <- file.path(root, p_norm)
+    if (file.exists(rooted)) return(rooted)
     if (file.exists(p)) return(p)
     if (file.exists(p_norm)) return(p_norm)
-    file.path(getwd(), p_norm)
+    rooted
 }
 
 ncbi_validate_cache_entry <- function(entry) {

@@ -1199,6 +1199,32 @@ cgv_reproducibility_staging_path <- function(package_root) {
     )
 }
 
+cgv_zip_directory <- function(zipfile, directory, files = NULL) {
+    if (!requireNamespace("processx", quietly = TRUE)) {
+        stop("Creating a reproducibility package requires the 'processx' package.")
+    }
+    if (is.null(files)) {
+        files <- list.files(directory, recursive = TRUE, all.files = FALSE, no.. = TRUE)
+    }
+    result <- tryCatch(
+        processx::run(
+            Sys.getenv("R_ZIPCMD", "zip"),
+            args = c("-q", zipfile, files),
+            wd = directory,
+            error_on_status = FALSE
+        ),
+        error = function(e) structure(conditionMessage(e), class = "cgv_zip_error")
+    )
+    if (inherits(result, "cgv_zip_error")) {
+        stop("Could not create the reproducibility package archive: ", as.character(result))
+    }
+    status <- suppressWarnings(as.integer(result$status))
+    if (!is.finite(status) || status != 0L) {
+        stop("Could not create the reproducibility package archive.")
+    }
+    invisible(status)
+}
+
 cgv_report_meta_root <- function(base_dir = ".") {
     root <- if (exists("get_cgv_cache_root", mode = "function")) {
         get_cgv_cache_root(base_dir)
@@ -1327,12 +1353,8 @@ cgv_write_reproducibility_package <- function(analysis,
     # different filesystems, so stage directly in the package directory.
     zip_staging <- cgv_reproducibility_staging_path(package_root)
     on.exit(if (file.exists(zip_staging)) unlink(zip_staging, force = TRUE), add = TRUE)
-    old_wd <- getwd()
-    on.exit(setwd(old_wd), add = TRUE)
-    setwd(work_dir)
-    files <- list.files(".", recursive = TRUE, all.files = FALSE, no.. = TRUE)
-    utils::zip(zipfile = zip_staging, files = files, flags = "-q")
-    setwd(old_wd)
+    files <- list.files(work_dir, recursive = TRUE, all.files = FALSE, no.. = TRUE)
+    cgv_zip_directory(zipfile = zip_staging, directory = work_dir, files = files)
     cgv_with_shared_storage_lock(base_dir, function() {
         staging_size <- file.info(zip_staging)$size
         existing_size <- max(0, cgv_shared_storage_size(base_dir) - staging_size)
