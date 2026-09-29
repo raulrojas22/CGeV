@@ -1514,6 +1514,10 @@ init_shared_analysis_domain <- function(input,
                                         background_bootstrap = FALSE,
                                         app_version = "unknown",
                                         base_dir = ".") {
+    session_deferred <- make_session_deferred(session)
+    session_later <- session_deferred$later
+    session_guard <- session_deferred$guard
+
     state <- shiny::reactiveValues(
         pending = NULL,
         package_path = "",
@@ -2289,7 +2293,7 @@ init_shared_analysis_domain <- function(input,
 
     arm_report_stage_timeout <- function(request_id, phase, seconds, message) {
         if (!requireNamespace("later", quietly = TRUE)) return(invisible(NULL))
-        later::later(function() {
+        session_later(function() {
             current <- shiny::isolate(state$pending)
             if (isTRUE(shiny::isolate(state$busy)) &&
                 is.list(current) &&
@@ -2397,7 +2401,7 @@ init_shared_analysis_domain <- function(input,
             list()
         }
         if (promises::is.promise(lastz_result)) {
-            lastz_result %...>% finish_lastz_phase %...!% fail_lastz_phase
+            lastz_result %...>% (session_guard(finish_lastz_phase)) %...!% (session_guard(fail_lastz_phase))
         } else {
             finish_lastz_phase(lastz_result)
         }
@@ -2873,13 +2877,13 @@ init_shared_analysis_domain <- function(input,
         try(cgv_cleanup_shared_reports(base_dir), silent = TRUE)
         try(cgv_cleanup_reproducibility_packages(base_dir), silent = TRUE)
         if (!session$isClosed() && requireNamespace("later", quietly = TRUE)) {
-            later::later(cleanup_loop, delay = 15 * 60)
+            session_later(cleanup_loop, delay = 15 * 60)
         }
     }
     try(cgv_cleanup_shared_reports(base_dir), silent = TRUE)
     try(cgv_cleanup_reproducibility_packages(base_dir), silent = TRUE)
     if (requireNamespace("later", quietly = TRUE)) {
-        later::later(cleanup_loop, delay = 15 * 60)
+        session_later(cleanup_loop, delay = 15 * 60)
     }
 
     invisible(state)

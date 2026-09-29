@@ -1,6 +1,10 @@
 # server.R
 
 .cgv_server_definition <- function(input, output, session) {
+    session_deferred <- make_session_deferred(session)
+    session_later <- session_deferred$later
+    session_guard <- session_deferred$guard
+
     session_t0 <- app_perf_now()
     session_token <- as.character(session$token %||% "unknown")
     session_metric_enabled <- app_env_flag("APP_SESSION_METRICS", default = FALSE)
@@ -359,7 +363,7 @@
             }, seed = FALSE)
         })
         names(jobs) <- query_ids
-        promises::promise_all(.list = jobs) %...>% (function(payloads) {
+        promises::promise_all(.list = jobs) %...>% (session_guard(function(payloads) {
             payloads <- unname(as.list(payloads %||% list()))
             runs <- lapply(payloads, function(item) {
                 result <- item$run %||% list(status = "engine_error", stderr = "empty result")
@@ -375,7 +379,7 @@
                 query_ids = query_ids,
                 stamp = as.character(Sys.time())
             )
-        })
+        }))
     }
 
     # Summarize a locus context for debug logging
@@ -914,13 +918,13 @@
                 sprintf("metrics_payload_queued_after_first_paint plots=%d", as.integer(length(ids_chr))),
                 perf_context
             )
-            later::later(function() {
+            session_later(function() {
                 dispatch_pending_metrics_build(run_key, reason = "paint_timeout")
             }, delay = 120)
             return(invisible(TRUE))
         }
         if (requireNamespace("later", quietly = TRUE)) {
-            later::later(function() {
+            session_later(function() {
                 tryCatch(dispatch(), error = function(e) {
                     app_perf_mark(perf_run, sprintf("metrics_payload_build_error=%s", as.character(e$message %||% "unknown")), perf_context)
                 })
@@ -1190,27 +1194,27 @@
             }
             if (isTRUE(secondary_work_should_yield())) {
                 app_perf_mark(warm_perf, "yield: user search active", "STRING_PREWARM")
-                later::later(launch_string_worker_prewarm, delay = secondary_work_retry_delay_sec)
+                session_later(launch_string_worker_prewarm, delay = secondary_work_retry_delay_sec)
                 return(invisible(FALSE))
             }
             app_perf_mark(warm_perf, "launch", "STRING_PREWARM")
             tryCatch({
                 lastz_future_promise({
                     TRUE
-                }, seed = TRUE) %...>% (function(ok) {
+                }, seed = TRUE) %...>% (session_guard(function(ok) {
                     app_perf_mark(warm_perf, "ready", "STRING_PREWARM")
                     invisible(ok)
-                }) %...!% (function(e) {
+                })) %...!% (session_guard(function(e) {
                     app_perf_mark(warm_perf, sprintf("error=%s", as.character(e$message %||% "unknown")), "STRING_PREWARM")
                     invisible(NULL)
-                })
+                }))
             }, error = function(e) {
                 app_perf_mark(warm_perf, sprintf("launch_error=%s", as.character(e$message %||% "unknown")), "STRING_PREWARM")
                 invisible(NULL)
             })
         }
         session$onFlushed(function() {
-            later::later(
+            session_later(
                 launch_string_worker_prewarm,
                 delay = max(delay_val, secondary_work_initial_delay_sec)
             )
@@ -1548,7 +1552,7 @@
             activated <- TRUE
             activation_token <- current$token
             if (requireNamespace("later", quietly = TRUE)) {
-                later::later(function() {
+                session_later(function() {
                     if (isTRUE(session$isClosed())) return(invisible(NULL))
                     isolate({
                         latest <- orthoFirstPaintGate()
@@ -1620,7 +1624,7 @@
             release_ortho_first_paint_gate(run_id, reason = "timer_unavailable")
             return(invisible(TRUE))
         }
-        later::later(function() {
+        session_later(function() {
             if (isTRUE(session$isClosed())) return(invisible(NULL))
             isolate({
                 latest <- orthoFirstPaintGate()
@@ -5482,7 +5486,7 @@
             }
             if (isTRUE(secondary_work_should_yield())) {
                 app_perf_mark(warm_perf, "yield: user search active", "CACHE_BG")
-                later::later(run_next, delay = secondary_work_retry_delay_sec)
+                session_later(run_next, delay = secondary_work_retry_delay_sec)
                 return(invisible(FALSE))
             }
             if (next_idx > length(ann)) {
@@ -5499,7 +5503,7 @@
             finish_this_warm <- function() {
                 if (isTRUE(secondary_work_should_yield())) {
                     app_perf_mark(warm_perf, "followup yield: user search active", "CACHE_BG")
-                    later::later(finish_this_warm, delay = secondary_work_retry_delay_sec)
+                    session_later(finish_this_warm, delay = secondary_work_retry_delay_sec)
                     return(invisible(FALSE))
                 }
                 tryCatch(
@@ -5521,7 +5525,7 @@
                     }
                 )
                 if (next_idx <= length(ann)) {
-                    later::later(run_next, delay = 0.03)
+                    session_later(run_next, delay = 0.03)
                 } else {
                     app_perf_mark(warm_perf, "done", "CACHE_BG")
                 }
@@ -5534,7 +5538,7 @@
                 complete_annotation_future <- function(idx = NULL, err = NULL) {
                     if (isTRUE(secondary_work_should_yield())) {
                         app_perf_mark(warm_perf, "annotation callback yield: user search active", "CACHE_BG")
-                        later::later(
+                        session_later(
                             function() complete_annotation_future(idx = idx, err = err),
                             delay = secondary_work_retry_delay_sec
                         )
@@ -5574,13 +5578,13 @@
                     {
                         promises::future_promise({
                             build_gff_gene_light_index(local_ann)
-                        }, seed = FALSE) %...>% (function(idx) {
+                        }, seed = FALSE) %...>% (session_guard(function(idx) {
                             complete_annotation_future(idx = idx)
                             invisible(idx)
-                        }) %...!% (function(err) {
+                        })) %...!% (session_guard(function(err) {
                             complete_annotation_future(err = err)
                             invisible(NULL)
-                        })
+                        }))
                         return(invisible(TRUE))
                     },
                     error = function(e) {
@@ -5597,7 +5601,7 @@
             invisible(TRUE)
         }
 
-        later::later(run_next, delay = max(delay_val, secondary_work_initial_delay_sec))
+        session_later(run_next, delay = max(delay_val, secondary_work_initial_delay_sec))
         invisible(TRUE)
     }
 
@@ -5649,7 +5653,7 @@
             }
             if (isTRUE(secondary_work_should_yield())) {
                 app_perf_mark(warm_perf, "yield: user search active", "LOOKUP_WORKER_WARM")
-                later::later(launch, delay = secondary_work_retry_delay_sec)
+                session_later(launch, delay = secondary_work_retry_delay_sec)
                 return(invisible(FALSE))
             }
             promises <- lapply(seq_len(worker_count), function(worker_idx) {
@@ -5676,7 +5680,7 @@
                     list(worker_idx = worker_idx, warmed = warmed)
                 }, seed = FALSE)
             })
-            promises::promise_all(.list = promises) %...>% (function(results) {
+            promises::promise_all(.list = promises) %...>% (session_guard(function(results) {
                 total_warmed <- sum(vapply(results, function(x) as.integer((x %||% list())$warmed %||% 0L), integer(1)), na.rm = TRUE)
                 app_perf_mark(
                     warm_perf,
@@ -5684,18 +5688,18 @@
                     "LOOKUP_WORKER_WARM"
                 )
                 NULL
-            }) %...!% (function(err) {
+            })) %...!% (session_guard(function(err) {
                 app_perf_mark(
                     warm_perf,
                     sprintf("error: %s", as.character(conditionMessage(err) %||% "unknown")),
                     "LOOKUP_WORKER_WARM"
                 )
                 NULL
-            })
+            }))
             invisible(TRUE)
         }
 
-        later::later(launch, delay = max(delay_val, secondary_work_initial_delay_sec))
+        session_later(launch, delay = max(delay_val, secondary_work_initial_delay_sec))
         invisible(TRUE)
     }
 
@@ -5783,7 +5787,7 @@
             }
             if (isTRUE(secondary_work_should_yield())) {
                 app_perf_mark(prep_perf, "followup yield: user search active", "ORG_FAST")
-                later::later(run_followup_queue, delay = secondary_work_retry_delay_sec)
+                session_later(run_followup_queue, delay = secondary_work_retry_delay_sec)
                 return(invisible(FALSE))
             }
             if (length(followup_queue) == 0L) {
@@ -5826,7 +5830,7 @@
                 app_perf_mark_ms(prep_perf, sprintf("alias_warm_%s_ms", ifelse(is.finite(i), as.character(i), "x")), app_perf_elapsed_ms(component_t0), "ORG_FAST")
             }
 
-            later::later(run_followup_queue, delay = 0.03)
+            session_later(run_followup_queue, delay = 0.03)
             invisible(TRUE)
         }
 
@@ -5835,7 +5839,7 @@
                 return(invisible(FALSE))
             }
             followup_running <<- TRUE
-            later::later(run_followup_queue, delay = 0.02)
+            session_later(run_followup_queue, delay = 0.02)
             invisible(TRUE)
         }
 
@@ -5872,10 +5876,10 @@
                 # or delay delivery of the ready state to the browser.
                 tryCatch(
                     session$onFlushed(function() {
-                        later::later(start_followup_queue, delay = secondary_work_initial_delay_sec)
+                        session_later(start_followup_queue, delay = secondary_work_initial_delay_sec)
                     }, once = TRUE),
                     error = function(e) {
-                        later::later(start_followup_queue, delay = secondary_work_initial_delay_sec)
+                        session_later(start_followup_queue, delay = secondary_work_initial_delay_sec)
                     }
                 )
             } else {
@@ -5903,12 +5907,12 @@
             tryCatch(warm_annotation_cache(ann[[i]], status_rv = NULL, context_label = NULL), error = function(e) NULL)
             app_perf_mark_ms(prep_perf, sprintf("annotation_warm_%d_ms", i), app_perf_elapsed_ms(component_t0), "ORG_FAST")
             enqueue_followup(i, ann[[i]], gp[[i]], rp[[i]], sid[[i]])
-            later::later(run_next, delay = 0)
+            session_later(run_next, delay = 0)
             invisible(TRUE)
         }
 
         session$onFlushed(function() {
-            later::later(run_next, delay = 0)
+            session_later(run_next, delay = 0)
         }, once = TRUE)
         invisible(TRUE)
     }
@@ -5952,7 +5956,7 @@
             prep_busy <- !isTRUE(isolate(searchPreparationReadyHomo())) ||
                 !isTRUE(isolate(searchPreparationReadyOrtho()))
             if (isTRUE(secondary_work_should_yield()) || isTRUE(prep_busy)) {
-                later::later(run_next, delay = 2)
+                session_later(run_next, delay = 2)
                 return(invisible(FALSE))
             }
             if (next_idx > length(paths)) {
@@ -5962,16 +5966,16 @@
             next_idx <<- next_idx + 1L
             promises::future_promise({
                 slim_gff_gene_light_index_file(p, base_dir = ".")
-            }, seed = FALSE) %...>% (function(value) {
-                later::later(run_next, delay = 0.5)
+            }, seed = FALSE) %...>% (session_guard(function(value) {
+                session_later(run_next, delay = 0.5)
                 value
-            }) %...!% (function(err) {
-                later::later(run_next, delay = 1)
+            })) %...!% (session_guard(function(err) {
+                session_later(run_next, delay = 1)
                 NULL
-            })
+            }))
             invisible(TRUE)
         }
-        later::later(run_next, delay = max(0, as.numeric(delay_sec %||% 10)))
+        session_later(run_next, delay = max(0, as.numeric(delay_sec %||% 10)))
         invisible(TRUE)
     }
 
@@ -6066,13 +6070,13 @@
             }
             if (isTRUE(secondary_work_should_yield())) {
                 app_perf_mark(NULL, "renderer_prewarm_yield=user_search_active", "PLOT_WARM")
-                later::later(run_renderer_prewarm, delay = secondary_work_retry_delay_sec)
+                session_later(run_renderer_prewarm, delay = secondary_work_retry_delay_sec)
                 return(invisible(FALSE))
             }
             tryCatch(warm_gene_plot_renderer_once(), error = function(e) NULL)
         }
         session$onFlushed(function() {
-            later::later(
+            session_later(
                 run_renderer_prewarm,
                 delay = max(renderer_prewarm_delay_ms / 1000, secondary_work_initial_delay_sec)
             )
@@ -9325,7 +9329,7 @@
                             if (nzchar(gaf_for_build) && nzchar(build_key) &&
                                 !exists(build_key, envir = pendingGoIndexBuilds, inherits = FALSE)) {
                                 assign(build_key, TRUE, envir = pendingGoIndexBuilds)
-                                later::later(function() {
+                                session_later(function() {
                                     target <- go_index_cache_path(gaf_for_build, base_dir = ".")
                                     if (requireNamespace("processx", quietly = TRUE)) {
                                         proc <- tryCatch(
@@ -9353,7 +9357,7 @@
                                                 active <- get0(build_key, envir = pendingGoIndexBuilds, inherits = FALSE, ifnotfound = NULL)
                                                 if (is.null(active) || !inherits(active, "process")) return(invisible(NULL))
                                                 if (isTRUE(active$is_alive())) {
-                                                    later::later(poll_build, delay = 0.5)
+                                                    session_later(poll_build, delay = 0.5)
                                                     return(invisible(NULL))
                                                 }
                                                 status <- active$get_exit_status()
@@ -9364,23 +9368,23 @@
                                                 }
                                                 invisible(NULL)
                                             }
-                                            later::later(poll_build, delay = 0.5)
+                                            session_later(poll_build, delay = 0.5)
                                         }
                                     } else {
                                         promises::future_promise({
                                             build_go_gaf_index(gaf_for_build, target, force = FALSE)
-                                        }, seed = TRUE) %...>% (function(value) {
+                                        }, seed = TRUE) %...>% (session_guard(function(value) {
                                             if (exists(build_key, envir = pendingGoIndexBuilds, inherits = FALSE)) {
                                                 rm(list = build_key, envir = pendingGoIndexBuilds)
                                             }
                                             NULL
-                                        }) %...!% (function(err) {
+                                        })) %...!% (session_guard(function(err) {
                                             if (exists(build_key, envir = pendingGoIndexBuilds, inherits = FALSE)) {
                                                 rm(list = build_key, envir = pendingGoIndexBuilds)
                                             }
                                             app_debug_log("[GO index] background build failed: ", conditionMessage(err))
                                             NULL
-                                        })
+                                        }))
                                     }
                                 }, delay = 0.2)
                             }
@@ -9438,11 +9442,11 @@
                     worker_started <- app_perf_now()
                     promises::future_promise({
                         go_lookup_worker(go_entry, candidates, base_dir = ".")
-                    }, seed = TRUE) %...>% (function(worker_result) {
+                    }, seed = TRUE) %...>% (session_guard(function(worker_result) {
                         app_perf_mark_ms(perf_run, "worker_total_ms", app_perf_elapsed_ms(worker_started), "GO_LOCAL")
                         finish_local_lookup(worker_result)
                         NULL
-                    }) %...!% (function(err) {
+                    })) %...!% (session_guard(function(err) {
                         send_response(
                             tone = "error",
                             summary = "An unexpected error occurred while searching local GO annotations.",
@@ -9452,7 +9456,7 @@
                             online_payload = online_payload_base
                         )
                         NULL
-                    })
+                    }))
                     return(invisible(NULL))
                 },
                 error = function(e) {
@@ -9637,10 +9641,10 @@
                         )
                     )
                 })
-            }) %...>% (function(response_payload) {
+            }) %...>% (session_guard(function(response_payload) {
                 send_go_popup_payload(response_payload)
                 NULL
-            }) %...!% (function(e) {
+            })) %...!% (session_guard(function(e) {
                 send_go_popup_payload(build_response(
                     tone = "error",
                     summary = "An unexpected error occurred during the online GO lookup.",
@@ -9657,7 +9661,7 @@
                     )
                 ))
                 NULL
-            })
+            }))
             invisible(NULL)
         },
         ignoreInit = TRUE
@@ -9717,13 +9721,13 @@
                 page = page,
                 page_size = page_size,
                 sort_by = sort_by
-            ), packages = "httr2") %...>% (function(result) {
+            ), packages = "httr2") %...>% (session_guard(function(result) {
                 result$request_id <- request_id
                 result$gene <- gene_str
                 result$organism <- organism_str
                 session$sendCustomMessage("papers_popup_data", result)
                 NULL
-            }) %...!% (function(e) {
+            })) %...!% (session_guard(function(e) {
                 session$sendCustomMessage("papers_popup_data", list(
                     request_id = request_id,
                     hits = 0L,
@@ -9736,7 +9740,7 @@
                     error = paste("Error:", conditionMessage(e))
                 ))
                 NULL
-            })
+            }))
             invisible(NULL)
         },
         ignoreInit = TRUE
@@ -9938,21 +9942,21 @@
 
             promises::future_promise({
                 fetch_organism_images_inaturalist(organism_str, aliases = org_aliases, max_photos = 9L)
-            }) %...>% (function(result) {
+            }) %...>% (session_guard(function(result) {
                 # Cache the result
                 cur <- isolate(organism_images_cache())
                 cur[[organism_str]] <- result
                 organism_images_cache(cur)
                 session$sendCustomMessage("organism_images_data", result)
                 NULL
-            }) %...!% (function(e) {
+            })) %...!% (session_guard(function(e) {
                 session$sendCustomMessage("organism_images_data", list(
                     organism = organism_str,
                     photos = list(),
                     error = paste("Error:", conditionMessage(e))
                 ))
                 NULL
-            })
+            }))
             invisible(NULL)
         },
         ignoreInit = TRUE
@@ -11974,7 +11978,7 @@
             }), label = "LASTZ Blocks")
             names(promise_map) <- query_ids_local
 
-            promises::promise_all(.list = promise_map) %...>% (function(run_payloads) {
+            promises::promise_all(.list = promise_map) %...>% (session_guard(function(run_payloads) {
                 current_token <- trimws(as.character(pipLocalAlignmentTokenOrthologous() %||% ""))
                 if (!identical(current_token, run_token)) {
                     lastz_dbg("Stale LASTZ Blocks promise_all resolution ignored", detail = sprintf("token=%s current=%s", run_token, current_token), level = "warn")
@@ -12006,7 +12010,7 @@
                 }
                 finalize_pip_async(runs, run_token)
                 NULL
-            }) %...!% (function(err) {
+            })) %...!% (session_guard(function(err) {
                 current_token <- trimws(as.character(pipLocalAlignmentTokenOrthologous() %||% ""))
                 if (!identical(current_token, run_token)) {
                     lastz_dbg("Stale LASTZ Blocks promise_all error ignored", detail = sprintf("token=%s current=%s", run_token, current_token), level = "warn")
@@ -12020,7 +12024,7 @@
                 names(error_map) <- query_ids_local
                 finalize_pip_async(error_map, run_token)
                 NULL
-            })
+            }))
         }, ignoreInit = TRUE)
 
 	    pipLocalAlignmentRunsOrthologous <- reactive({
@@ -12458,7 +12462,7 @@
             }), label = "MultiPIP")
             names(promise_map) <- query_ids_local
 
-            promises::promise_all(.list = promise_map) %...>% (function(run_payloads) {
+            promises::promise_all(.list = promise_map) %...>% (session_guard(function(run_payloads) {
                 current_token <- trimws(as.character(multipipLocalAlignmentTokenOrthologous() %||% ""))
                 if (!identical(current_token, run_token)) {
                     lastz_dbg("MP stale promise_all resolution ignored", detail = sprintf("token=%s current=%s", run_token, current_token), level = "warn")
@@ -12490,7 +12494,7 @@
                 }
                 finalize_multipip_async(runs, run_token)
                 NULL
-            }) %...!% (function(err) {
+            })) %...!% (session_guard(function(err) {
                 current_token <- trimws(as.character(multipipLocalAlignmentTokenOrthologous() %||% ""))
                 if (!identical(current_token, run_token)) {
                     lastz_dbg("MP stale promise_all error ignored", detail = sprintf("token=%s current=%s", run_token, current_token), level = "warn")
@@ -12504,7 +12508,7 @@
                 names(error_map) <- query_ids_local
                 finalize_multipip_async(error_map, run_token)
                 NULL
-            })
+            }))
         }, ignoreInit = TRUE)
 
 	    multipipLocalAlignmentRunsOrthologous <- reactive({
@@ -14253,10 +14257,10 @@
         }
         reg <- refresh_preloaded_registry(select_installed = TRUE)
         if (requireNamespace("later", quietly = TRUE)) {
-            later::later(function() {
+            session_later(function() {
                 refresh_preloaded_registry(select_installed = TRUE)
             }, delay = 0.35)
-            later::later(function() {
+            session_later(function() {
                 refresh_preloaded_registry(select_installed = TRUE)
             }, delay = 1.25)
         }
@@ -14965,7 +14969,7 @@
             delay_val <- 0
         }
         if (requireNamespace("later", quietly = TRUE) && delay_val > 0) {
-            later::later(dispatch, delay = delay_val)
+            session_later(dispatch, delay = delay_val)
         } else {
             dispatch()
         }
@@ -15142,7 +15146,7 @@
             invisible(TRUE)
         }
         if (!identical(active_panel, source_panel) && requireNamespace("later", quietly = TRUE)) {
-            later::later(dispatch_neighbor_search, delay = 0.08)
+            session_later(dispatch_neighbor_search, delay = 0.08)
         } else {
             dispatch_neighbor_search()
         }
@@ -15283,12 +15287,12 @@
                 group_name, group_index, length(registry_groups), nrow(combined)
             ))
             continue_search <- function() process_group(group_index + 1L, combined)
-            if (requireNamespace("later", quietly = TRUE)) later::later(continue_search, delay = 0.03) else continue_search()
+            if (requireNamespace("later", quietly = TRUE)) session_later(continue_search, delay = 0.03) else continue_search()
             invisible(combined)
         }
 
         launch_search <- function() process_group(1L, empty_alias_catalog_results())
-        if (requireNamespace("later", quietly = TRUE)) later::later(launch_search, delay = 0.03) else launch_search()
+        if (requireNamespace("later", quietly = TRUE)) session_later(launch_search, delay = 0.03) else launch_search()
         invisible(NULL)
     }
 
@@ -15477,7 +15481,7 @@
         updateRadioButtons(session, "homo_data_mode", selected = "preloaded")
         updateTextInput(session, "filter1", value = gene)
         launch <- function() session$sendCustomMessage("cgv:catalog-open-multigene", list(species_id = species_id, gene = gene))
-        if (requireNamespace("later", quietly = TRUE)) later::later(launch, delay = 0.12) else launch()
+        if (requireNamespace("later", quietly = TRUE)) session_later(launch, delay = 0.12) else launch()
         invisible(TRUE)
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
 
@@ -15507,7 +15511,7 @@
         updateRadioButtons(session, "ortho_data_mode", selected = "preloaded")
         updateTextInput(session, "gene_name", value = gene)
         launch <- function() session$sendCustomMessage("cgv:catalog-open-cross", list(species_ids = species_ids, gene = gene))
-        if (requireNamespace("later", quietly = TRUE)) later::later(launch, delay = 0.12) else launch()
+        if (requireNamespace("later", quietly = TRUE)) session_later(launch, delay = 0.12) else launch()
         invisible(TRUE)
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
 
@@ -15615,7 +15619,7 @@
         needs_tab_settle <- !identical(as.character(active_panel %||% ""), as.character(target_mode %||% ""))
         delay_dispatch <- if (isTRUE(needs_tab_settle)) 0.08 else 0
         if (requireNamespace("later", quietly = TRUE) && delay_dispatch > 0) {
-            later::later(dispatch_single, delay = delay_dispatch)
+            session_later(dispatch_single, delay = delay_dispatch)
         } else {
             dispatch_single()
         }
@@ -20258,7 +20262,7 @@
                         assign(libs_key, TRUE, envir = worker_env)
                     }
                         lapply(chunk_jobs, run_orthologous_lookup_job_pure)
-                    }) %...>% (function(chunk_results) {
+                    }) %...>% (session_guard(function(chunk_results) {
                         if (!identical(orthoExternalRescueState$id, rescue_request_id)) {
                             app_perf_mark(perf_run, sprintf("external alias rescue chunk ignored: stale chunk=%d", as.integer(chunk_idx)), "ORTHO_LOOKUP")
                             return(chunk_results)
@@ -20294,9 +20298,9 @@
                             "ORTHO_LOOKUP"
                         )
                         chunk_results
-                    })
+                    }))
                 })
-                promises::promise_all(.list = rescue_promises) %...>% (function(rescue_results_chunks) {
+                promises::promise_all(.list = rescue_promises) %...>% (session_guard(function(rescue_results_chunks) {
                     if (!identical(orthoExternalRescueState$id, rescue_request_id)) {
                         app_perf_mark(perf_run, "external alias rescue ignored: stale request", "ORTHO_LOOKUP")
                         return(NULL)
@@ -20339,7 +20343,7 @@
                         "ORTHO_LOOKUP"
                     )
                     NULL
-                }) %...!% (function(err) {
+                })) %...!% (session_guard(function(err) {
                     if (identical(orthoExternalRescueState$id, rescue_request_id)) {
                         rescue_err <- trimws(as.character(conditionMessage(err) %||% "Unknown error"))
                         rescue_err <- gsub("[\r\n]+", " ", rescue_err)
@@ -20354,12 +20358,12 @@
                         emit_popup_status("Cross-Species Gene Search", rescue_msg, tone = "warning", clear = TRUE)
                     }
                     NULL
-                })
+                }))
                 invisible(NULL)
             }
             if (requireNamespace("later", quietly = TRUE)) {
                 session$onFlushed(function() {
-                    later::later(launch_external_rescue, delay = 0.05)
+                    session_later(launch_external_rescue, delay = 0.05)
                 }, once = TRUE)
                 app_perf_mark(perf_run, "external alias rescue launch queued after local UI flush", "ORTHO_LOOKUP")
             } else {
@@ -20565,7 +20569,7 @@
                         assign(libs_key, TRUE, envir = worker_env)
                     }
                     run_orthologous_lookup_job_pure(job)
-                }, seed = FALSE) %...>% (function(res) {
+                }, seed = FALSE) %...>% (session_guard(function(res) {
                     if (!identical(orthoExternalRescueState$id, local_request_id)) {
                         app_perf_mark(perf_run, sprintf("progressive local result ignored: stale job=%d", as.integer(job_idx)), "ORTHO_LOOKUP")
                         return(res)
@@ -20573,9 +20577,9 @@
                     progressive_results[[job_idx]] <<- res
                     app_perf_mark(perf_run, sprintf("progressive local result staged %d/%d", as.integer(job_idx), as.integer(length(local_lookup_jobs))), "ORTHO")
                     res
-                })
+                }))
             })
-            promises::promise_all(.list = promise_map) %...>% (function(all_results) {
+            promises::promise_all(.list = promise_map) %...>% (session_guard(function(all_results) {
                 if (!identical(orthoExternalRescueState$id, local_request_id)) {
                     app_perf_mark(perf_run, "progressive local completion ignored: stale request", "ORTHO_LOOKUP")
                     return(NULL)
@@ -20600,7 +20604,7 @@
                 finalize_search_cleanup("orthologous")
                 finish_search_run("orthologous")
                 NULL
-            }) %...!% (function(err) {
+            })) %...!% (session_guard(function(err) {
                 if (identical(orthoExternalRescueState$id, local_request_id)) {
                     local_err <- trimws(as.character(conditionMessage(err) %||% "Unknown error"))
                     local_err <- gsub("[\r\n]+", " ", local_err)
@@ -20614,7 +20618,7 @@
                     finish_search_run("orthologous")
                 }
                 NULL
-            })
+            }))
             return(invisible(NULL))
         }
 
@@ -22004,7 +22008,7 @@
                 homoAutoRenderQueued(FALSE)
                 return(invisible(NULL))
             }
-            later::later(function() {
+            session_later(function() {
                 isolate({
                     same_ids <- identical(
                         as.character(primaryPlotIdsHomologous() %||% character(0)),
@@ -22384,7 +22388,7 @@
             }, seed = FALSE)
         })
         names(jobs) <- query_ids
-        promises::promise_all(.list = jobs) %...>% (function(payloads) {
+        promises::promise_all(.list = jobs) %...>% (session_guard(function(payloads) {
             payloads <- unname(as.list(payloads %||% list()))
             runs <- lapply(payloads, function(item) {
                 result <- item$run %||% list(status = "engine_error", stderr = "empty result")
@@ -22400,7 +22404,7 @@
                 query_ids = query_ids,
                 stamp = as.character(Sys.time())
             )
-        })
+        }))
     }
 
     observeEvent(input$homo_pip_run_alignments, {
@@ -22416,7 +22420,7 @@
         )
         run_token <- paste0("homo_pip_", format(Sys.time(), "%Y%m%d%H%M%OS6"), "_", sample.int(1000000L, 1L))
         homoPipLocalAlignmentState(list(status = "running", token = run_token, runs = list(), contexts = homoLastzLocusContexts(input$homo_pip_span %||% "gene"), reference_id = homoCanonicalReferencePlotId(), query_ids = character(0), stamp = as.character(Sys.time())))
-        run_homo_local_lastz_async("blocks", span_mode = input$homo_pip_span %||% "gene") %...>% (function(state) {
+        run_homo_local_lastz_async("blocks", span_mode = input$homo_pip_span %||% "gene") %...>% (session_guard(function(state) {
             if (!identical(as.character((homoPipLocalAlignmentState() %||% list())$token %||% ""), run_token)) return(NULL)
             state$token <- run_token
             homoPipLocalAlignmentState(state)
@@ -22424,14 +22428,14 @@
             set_popup_loading(FALSE, context = "Multi-Gene LASTZ")
             emit_popup_status("Multi-Gene LASTZ", "Local LASTZ alignments finished.", tone = "success", clear = TRUE)
             NULL
-        }) %...!% (function(err) {
+        })) %...!% (session_guard(function(err) {
             if (!identical(as.character((homoPipLocalAlignmentState() %||% list())$token %||% ""), run_token)) return(NULL)
             homoPipLocalAlignmentState(list(status = "error", token = run_token, error = conditionMessage(err), runs = list(), contexts = list(), reference_id = homoCanonicalReferencePlotId(), query_ids = character(0), stamp = as.character(Sys.time())))
             shinyjs::enable("homo_pip_run_alignments")
             set_popup_loading(FALSE, context = "Multi-Gene LASTZ")
             emit_popup_status("Multi-Gene LASTZ", paste0("Local LASTZ alignments did not finish: ", conditionMessage(err)), tone = "error", clear = TRUE)
             NULL
-        })
+        }))
     }, ignoreInit = TRUE)
 
     observeEvent(input$homo_multipip_run_alignments, {
@@ -22447,7 +22451,7 @@
         )
         run_token <- paste0("homo_multipip_", format(Sys.time(), "%Y%m%d%H%M%OS6"), "_", sample.int(1000000L, 1L))
         homoMultipipLocalAlignmentState(list(status = "running", token = run_token, runs = list(), contexts = homoLastzLocusContexts(input$homo_multipip_span %||% "gene"), reference_id = homoCanonicalReferencePlotId(), query_ids = character(0), stamp = as.character(Sys.time())))
-        run_homo_local_lastz_async("multipip", span_mode = input$homo_multipip_span %||% "gene") %...>% (function(state) {
+        run_homo_local_lastz_async("multipip", span_mode = input$homo_multipip_span %||% "gene") %...>% (session_guard(function(state) {
             if (!identical(as.character((homoMultipipLocalAlignmentState() %||% list())$token %||% ""), run_token)) return(NULL)
             state$token <- run_token
             homoMultipipLocalAlignmentState(state)
@@ -22455,14 +22459,14 @@
             set_popup_loading(FALSE, context = "Multi-Gene MultiPIP")
             emit_popup_status("Multi-Gene MultiPIP", "Local MultiPIP alignments finished.", tone = "success", clear = TRUE)
             NULL
-        }) %...!% (function(err) {
+        })) %...!% (session_guard(function(err) {
             if (!identical(as.character((homoMultipipLocalAlignmentState() %||% list())$token %||% ""), run_token)) return(NULL)
             homoMultipipLocalAlignmentState(list(status = "error", token = run_token, error = conditionMessage(err), runs = list(), contexts = list(), reference_id = homoCanonicalReferencePlotId(), query_ids = character(0), stamp = as.character(Sys.time())))
             shinyjs::enable("homo_multipip_run_alignments")
             set_popup_loading(FALSE, context = "Multi-Gene MultiPIP")
             emit_popup_status("Multi-Gene MultiPIP", paste0("Local MultiPIP alignments did not finish: ", conditionMessage(err)), tone = "error", clear = TRUE)
             NULL
-        })
+        }))
     }, ignoreInit = TRUE)
 
     homo_reference_window_features <- function(ref_ctx) {
@@ -25301,7 +25305,7 @@
             if (!requireNamespace("later", quietly = TRUE)) {
                 return(shiny::withReactiveDomain(session, callback()))
             }
-            later::later(function() {
+            session_later(function() {
                 if (!is.null(session) && is.function(session$isClosed) && isTRUE(session$isClosed())) {
                     return(invisible(NULL))
                 }
@@ -25983,7 +25987,7 @@
             "ORTHO_UI"
         )
         if (requireNamespace("later", quietly = TRUE)) {
-            later::later(function() {
+            session_later(function() {
                 isolate({
                     latest_gate <- orthoFirstPaintGate()
                     same_gate <- identical(
@@ -37218,7 +37222,7 @@
                 app_perf_mark(perf_run, "joined_inflight_request", "STRING")
             }
 
-            pending %...>% (function(result) {
+            pending %...>% (session_guard(function(result) {
                 if (exists(pending_key, envir = pendingStringPromises, inherits = FALSE)) {
                     rm(list = pending_key, envir = pendingStringPromises)
                 }
@@ -37246,12 +37250,12 @@
                     }
                 }
                 NULL
-            }) %...!% (function(err) {
+            })) %...!% (session_guard(function(err) {
                 if (exists(pending_key, envir = pendingStringPromises, inherits = FALSE)) {
                     rm(list = pending_key, envir = pendingStringPromises)
                 }
                 fail_request(err)
-            })
+            }))
         }
         tryCatch({
             screen_plans <- capture_string_screen_plans(pid, ctx, context_snapshot)
@@ -37263,7 +37267,7 @@
                     globals = string_screen_future_globals(screen_batches, timing),
                     packages = "stringr", seed = TRUE
                 )
-                pending_screen %...>% (function(result) {
+                pending_screen %...>% (session_guard(function(result) {
                     if (!request_current()) return(NULL)
                     merge_t0 <- if (timing) app_perf_now() else NULL
                     if (timing) {
@@ -37275,7 +37279,7 @@
                     for (i in seq_along(screen_plans)) stringAnnotationState$screen_merge(screen_plans[[i]], result$rows[[i]])
                     if (timing) app_perf_mark_ms(perf_run, "screen_merge_ms", app_perf_elapsed_ms(merge_t0), "STRING")
                     continue_network()
-                }) %...!% fail_request
+                })) %...!% (session_guard(fail_request))
             } else {
                 continue_network()
             }
@@ -37760,7 +37764,7 @@
                     return(promises::promise_resolve(list(missing = character(0), pip_runs = list(), multipip_prepared = TRUE)))
                 }
 
-                return(promises::promise_all(.list = jobs) %...>% (function(states) {
+                return(promises::promise_all(.list = jobs) %...>% (session_guard(function(states) {
                     states <- as.list(states %||% list())
                     missing_async <- character(0)
                     completed_for_report_async <- list()
@@ -37813,7 +37817,7 @@
                         pip_runs = completed_for_report_async,
                         multipip_prepared = TRUE
                     )
-                }))
+                })))
             },
             active_homo_ids_rv = activePlotIdsHomologous,
             active_ortho_ids_rv = activePlotIdsOrthologous,
@@ -37883,7 +37887,7 @@
                         invisible(NULL)
                     }
                     if (requireNamespace("later", quietly = TRUE)) {
-                        later::later(launch, delay = 2)
+                        session_later(launch, delay = 2)
                     } else {
                         launch()
                     }

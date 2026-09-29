@@ -34,7 +34,13 @@ make_state_cell <- function(initial = NULL) {
   }
 }
 
-session_stub <- new.env(parent = emptyenv())
+make_session_stub <- function() {
+  session <- new.env(parent = emptyenv())
+  session$isClosed <- function() FALSE
+  session$onSessionEnded <- function(callback) function() NULL
+  session
+}
+session_stub <- make_session_stub()
 session_stub$messages <- list()
 session_stub$sendCustomMessage <- function(type, payload) {
   session_stub$messages[[length(session_stub$messages) + 1L]] <<- list(type = type, payload = payload)
@@ -133,7 +139,7 @@ on.exit(unlink(tmp_gff_2, force = TRUE), add = TRUE)
 staged_cache <- list()
 staged_cache[[gff_cache_key(tmp_gff)]] <- c("GENE_A", "GENE_B", "GENE_SHARED")
 staged_cache[[gff_cache_key(tmp_gff_2)]] <- c("GENE_SHARED", "GENE_D")
-staged_session <- new.env(parent = emptyenv())
+staged_session <- make_session_stub()
 staged_session$messages <- list()
 staged_session$sendCustomMessage <- function(type, payload) {
   staged_session$messages[[length(staged_session$messages) + 1L]] <<- list(type = type, payload = payload)
@@ -188,7 +194,7 @@ assert_true(identical(latest_shared, "GENE_SHARED"),
 assert_true(isTRUE(staged_shared_result$complete),
             "Cross-species autocomplete should report cached paths as completely resolved.")
 
-missing_session <- new.env(parent = emptyenv())
+missing_session <- make_session_stub()
 missing_session$messages <- list()
 missing_session$sendCustomMessage <- function(type, payload) {
   missing_session$messages[[length(missing_session$messages) + 1L]] <<- list(type = type, payload = payload)
@@ -231,7 +237,7 @@ for (i in seq_along(shared_cap_paths)) {
   shared_cap_cache[[gff_cache_key(shared_cap_paths[[i]])]] <-
     if (i %in% c(1L, 13L)) "GENE_EDGE_SHARED" else sprintf("GENE_ONLY_%02d", i)
 }
-shared_cap_session <- new.env(parent = emptyenv())
+shared_cap_session <- make_session_stub()
 shared_cap_session$messages <- list()
 shared_cap_session$sendCustomMessage <- function(type, payload) {
   shared_cap_session$messages[[length(shared_cap_session$messages) + 1L]] <<- list(type = type, payload = payload)
@@ -267,7 +273,7 @@ writeLines(
 )
 on.exit(unlink(tmp_gff_3, force = TRUE), add = TRUE)
 
-quick_shared_session <- new.env(parent = emptyenv())
+quick_shared_session <- make_session_stub()
 quick_shared_session$messages <- list()
 quick_shared_session$sendCustomMessage <- function(type, payload) {
   quick_shared_session$messages[[length(quick_shared_session$messages) + 1L]] <<- list(type = type, payload = payload)

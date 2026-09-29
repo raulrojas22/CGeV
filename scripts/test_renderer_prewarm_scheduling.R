@@ -19,7 +19,7 @@ stopifnot(
   grepl('APP_GENE_PLOT_RENDERER_PREWARM_DELAY_MS', warm_block, fixed = TRUE),
   grepl('run_renderer_prewarm <- function()', warm_block, fixed = TRUE),
   grepl('if (isTRUE(secondary_work_should_yield()))', warm_block, fixed = TRUE),
-  grepl('later::later(run_renderer_prewarm, delay = secondary_work_retry_delay_sec)', warm_block, fixed = TRUE),
+  grepl('session_later(run_renderer_prewarm, delay = secondary_work_retry_delay_sec)', warm_block, fixed = TRUE),
   grepl('delay = max(renderer_prewarm_delay_ms / 1000, secondary_work_initial_delay_sec)', warm_block, fixed = TRUE),
   grepl('warm_gene_plot_renderer_once()', warm_block, fixed = TRUE),
   !grepl('}, delay = 0.15)', warm_block, fixed = TRUE),
@@ -59,17 +59,17 @@ cache_block <- substr(server_text, cache_start, lookup_start - 1L)
 lookup_block <- substr(server_text, lookup_start, fast_start - 1L)
 fast_block <- substr(server_text, fast_start, fast_end - 1L)
 stopifnot(
-  grepl('later::later(launch_string_worker_prewarm, delay = secondary_work_retry_delay_sec)', string_block, fixed = TRUE),
+  grepl('session_later(launch_string_worker_prewarm, delay = secondary_work_retry_delay_sec)', string_block, fixed = TRUE),
   grepl('delay = max(delay_val, secondary_work_initial_delay_sec)', string_block, fixed = TRUE),
-  grepl('later::later(run_next, delay = secondary_work_retry_delay_sec)', cache_block, fixed = TRUE),
-  grepl('later::later(finish_this_warm, delay = secondary_work_retry_delay_sec)', cache_block, fixed = TRUE),
+  grepl('session_later(run_next, delay = secondary_work_retry_delay_sec)', cache_block, fixed = TRUE),
+  grepl('session_later(finish_this_warm, delay = secondary_work_retry_delay_sec)', cache_block, fixed = TRUE),
   grepl('complete_annotation_future <- function(idx = NULL, err = NULL)', cache_block, fixed = TRUE),
   grepl('annotation callback yield: user search active', cache_block, fixed = TRUE),
   grepl('function() complete_annotation_future(idx = idx, err = err)', cache_block, fixed = TRUE),
   grepl('app_env_flag("APP_TABIX_PROBE_ON_WARM", FALSE)', cache_block, fixed = TRUE),
-  grepl('later::later(launch, delay = secondary_work_retry_delay_sec)', lookup_block, fixed = TRUE),
-  grepl('later::later(run_followup_queue, delay = secondary_work_retry_delay_sec)', fast_block, fixed = TRUE),
-  grepl('later::later(start_followup_queue, delay = secondary_work_initial_delay_sec)', fast_block, fixed = TRUE),
+  grepl('session_later(launch, delay = secondary_work_retry_delay_sec)', lookup_block, fixed = TRUE),
+  grepl('session_later(run_followup_queue, delay = secondary_work_retry_delay_sec)', fast_block, fixed = TRUE),
+  grepl('session_later(start_followup_queue, delay = secondary_work_initial_delay_sec)', fast_block, fixed = TRUE),
   grepl('app_env_flag("APP_TABIX_PROBE_ON_WARM", FALSE)', fast_block, fixed = TRUE)
 )
 

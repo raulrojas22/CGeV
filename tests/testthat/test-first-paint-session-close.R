@@ -7,7 +7,7 @@ paint_timeout_callback <- function(helper) {
     callbacks <- list()
     walk <- function(x) {
         if (missing(x) || !is.call(x)) return(invisible(NULL))
-        if (identical(x[[1L]], quote(later::later))) callbacks[[length(callbacks) + 1L]] <<- x[[2L]]
+        if (identical(x[[1L]], quote(session_later))) callbacks[[length(callbacks) + 1L]] <<- x[[2L]]
         for (child in as.list(x)[-1L]) walk(child)
     }
     walk(definition)

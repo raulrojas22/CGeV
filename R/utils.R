@@ -1,3 +1,58 @@
+# Deferred application work belongs to its originating session, even when it
+# warms a process cache. Never inspect a reactive to decide whether it is alive.
+make_session_deferred <- function(session) {
+    force(session)
+    ended <- FALSE
+    registered <- FALSE
+    next_id <- 0
+    pending <- new.env(parent = emptyenv())
+    drop_pending <- function(id) {
+        if (exists(id, envir = pending, inherits = FALSE)) rm(list = id, envir = pending)
+    }
+    alive <- function() !ended && !isTRUE(session$isClosed())
+    close <- function() {
+        ended <<- TRUE
+        for (id in ls(pending, all.names = TRUE)) pending[[id]]()
+        rm(list = ls(pending, all.names = TRUE), envir = pending)
+        session <<- NULL
+        invisible(NULL)
+    }
+    ensure_owner <- function() {
+        if (!registered && !ended) {
+            stopifnot(is.function(session$isClosed), is.function(session$onSessionEnded))
+            session$onSessionEnded(close)
+            registered <<- TRUE
+        }
+    }
+    guard <- function(callback) {
+        force(callback)
+        ensure_owner()
+        function(...) {
+            if (!alive()) return(invisible(NULL))
+            shiny::withReactiveDomain(session, callback(...))
+        }
+    }
+    schedule <- function(func, delay = 0, loop = later::current_loop()) {
+        force(func)
+        ensure_owner()
+        if (!alive()) return(invisible(function() FALSE))
+        next_id <<- next_id + 1
+        id <- as.character(next_id)
+        run <- guard(func)
+        cancel <- later::later(function() {
+            drop_pending(id)
+            run()
+        }, delay = delay, loop = loop)
+        pending[[id]] <- cancel
+        invisible(function() {
+            drop_pending(id)
+            cancel()
+        })
+    }
+    list(later = schedule, guard = guard,
+         pending_count = function() length(ls(pending, all.names = TRUE)))
+}
+
 # ==============================================================================
 # R/utils.R
 # Funciones auxiliares para manejo de secuencias, GFF, FASTA y búsqueda de genes.
@@ -9934,14 +9989,26 @@ run_orthologous_lookup_job_pure <- function(job) {
         !isTRUE(job$allow_partial_suggestions %||% TRUE)
     lookup_cache_key <- ""
     if (isTRUE(local_only) && nzchar(file) && file.exists(file) && nzchar(trimws(gene_name))) {
-        lookup_cache_key <- paste(
-            "ortho-local-v1",
-            gff_cache_key(file),
-            normalize_gene_compact(gene_name),
-            sep = "|"
-        )
+        # Cache the complete result, so include both scientific context and
+        # returned job metadata. Exact gene spelling also appears in lookup
+        # metadata; compact normalization can collapse distinct identifiers.
+        annotation_info <- file.info(file)
+        lookup_cache_key <- digest::digest(list(
+            version = "ortho-local-v2",
+            annotation = normalizePath(file, winslash = "/", mustWork = TRUE),
+            size = annotation_info$size[[1L]],
+            mtime = as.numeric(annotation_info$mtime[[1L]]),
+            index_version = .gff_index_cache_version,
+            gene = gene_name,
+            forced_genome = forced_genome,
+            file_label = file_label,
+            det = job$det
+        ), algo = "sha256")
         cached_lookup <- cache_env_get(.orthologous_local_lookup_cache, lookup_cache_key, default = NULL)
         if (!is.null(cached_lookup)) {
+            # Position/path spelling are request metadata, not science.
+            cached_lookup$file_idx <- j
+            cached_lookup$file_path <- file
             return(cached_lookup)
         }
     }

@@ -145,6 +145,7 @@ for (pid in as.character(seq_along(genes))) {
 run_observer_case <- function(mode) shiny::testServer(function(input, output, session) {
     env <- make_env(TRUE)
     env$input <- input; env$session <- session
+    env$session_guard <- make_session_deferred(session)$guard
     env$selectedChartPlotId <- reactiveVal(NULL); env$selectedChartContext <- reactiveVal('homo')
     env$stringNetworkWidget <- reactiveVal(NULL); env$stringNetworkData <- reactiveVal(NULL)
     env$stringNetworkRequestState <- new.env(parent = emptyenv()); env$stringNetworkRequestState$id <- ''
