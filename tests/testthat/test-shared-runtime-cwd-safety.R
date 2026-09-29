@@ -295,29 +295,192 @@ test_that("ncbi_resolve_cached_path anchors relative paths to the canonical data
     expect_length(record$counters$setwd_calls, 0L)
 })
 
-test_that("ncbi_resolve_cached_path falls back to the canonical root when CGV_DATA_ROOT is unset", {
+test_that("caller-cwd-local files cannot alter NCBI resolution when the canonical entry is absent", {
     record <- new_ncbi_domain_env()
-    work <- tempfile("cgv-cwd-ncbi-legacy-")
+    work <- tempfile("cgv-cwd-ncbi-decoy-")
     dir.create(work, recursive = TRUE)
     on.exit(unlink(work, recursive = TRUE, force = TRUE), add = TRUE)
+
+    data_root <- file.path(work, "data-root")
+    dir.create(data_root, recursive = TRUE)
+    annotation_rel <- "ncbi_downloads/GCF_ADV/annotation.gff.gz"
+    genome_rel <- "ncbi_downloads/GCF_ADV/genome.2bit"
 
     old_root <- Sys.getenv("CGV_DATA_ROOT", unset = NA_character_)
     on.exit({
         if (is.na(old_root)) Sys.unsetenv("CGV_DATA_ROOT") else Sys.setenv(CGV_DATA_ROOT = old_root)
     }, add = TRUE)
+    Sys.setenv(CGV_DATA_ROOT = data_root)
+
+    callers <- file.path(work, c("caller-a", "caller-b", "caller-c"))
+    for (caller in callers) dir.create(caller, recursive = TRUE)
+    dir.create(file.path(callers[[1]], "ncbi_downloads", "GCF_ADV"), recursive = TRUE)
+    writeLines("##gff-version 3", file.path(callers[[1]], annotation_rel))
+    writeLines("2bit", file.path(callers[[1]], genome_rel))
+
+    expected <- file.path(record$env$get_cgv_data_root("."), annotation_rel)
+    expect_false(file.exists(expected))
+
+    probe <- function(caller) {
+        old <- setwd(caller)
+        on.exit(setwd(old), add = TRUE)
+        list(
+            resolved = record$env$ncbi_resolve_cached_path(annotation_rel),
+            validation = isTRUE(record$env$ncbi_validate_cache_entry(
+                list(annotation_tabix = annotation_rel, genome_2bit = genome_rel)
+            )$ok)
+        )
+    }
+    results <- lapply(callers, probe)
+    resolved <- vapply(results, `[[`, character(1), "resolved")
+
+    expect_identical(resolved, rep(expected, length(callers)))
+    expect_false(any(vapply(callers, function(caller) any(startsWith(resolved, caller)), logical(1))))
+    expect_identical(vapply(results, `[[`, logical(1), "validation"), rep(FALSE, length(callers)))
+    expect_identical(record$counters$getwd_calls, 0L)
+    expect_length(record$counters$setwd_calls, 0L)
+})
+
+test_that("canonical and absolute NCBI paths stay invariant across three caller cwds", {
+    record <- new_ncbi_domain_env()
+    work <- tempfile("cgv-cwd-ncbi-invariance-")
+    dir.create(work, recursive = TRUE)
+    on.exit(unlink(work, recursive = TRUE, force = TRUE), add = TRUE)
+
+    data_root <- file.path(work, "data-root")
+    acc_dir <- file.path(data_root, "ncbi_downloads", "GCF_000005.5")
+    dir.create(acc_dir, recursive = TRUE)
+    annotation_abs <- file.path(acc_dir, "annotation.gff.gz")
+    genome_abs <- file.path(acc_dir, "genome.2bit")
+    writeLines("##gff-version 3", annotation_abs)
+    writeLines("2bit", genome_abs)
+    annotation_rel <- "ncbi_downloads/GCF_000005.5/annotation.gff.gz"
+    genome_rel <- "ncbi_downloads/GCF_000005.5/genome.2bit"
+    missing_abs <- file.path(work, "elsewhere", "missing.gff.gz")
+    windows_style <- "C:/cgv/not-present.gff.gz"
+
+    old_root <- Sys.getenv("CGV_DATA_ROOT", unset = NA_character_)
+    on.exit({
+        if (is.na(old_root)) Sys.unsetenv("CGV_DATA_ROOT") else Sys.setenv(CGV_DATA_ROOT = old_root)
+    }, add = TRUE)
+    Sys.setenv(CGV_DATA_ROOT = data_root)
+
+    expected_relative <- file.path(record$env$get_cgv_data_root("."), annotation_rel)
+    callers <- file.path(work, c("caller-a", "caller-b", "caller-c"))
+    for (caller in callers) dir.create(caller, recursive = TRUE)
+
+    probe <- function(caller) {
+        old <- setwd(caller)
+        on.exit(setwd(old), add = TRUE)
+        list(
+            relative = record$env$ncbi_resolve_cached_path(annotation_rel),
+            absolute = record$env$ncbi_resolve_cached_path(annotation_abs),
+            missing_absolute = record$env$ncbi_resolve_cached_path(missing_abs),
+            windows_style = record$env$ncbi_resolve_cached_path(windows_style),
+            validation = isTRUE(record$env$ncbi_validate_cache_entry(
+                list(annotation_tabix = annotation_rel, genome_2bit = genome_rel)
+            )$ok)
+        )
+    }
+    results <- lapply(callers, probe)
+
+    expect_identical(vapply(results, `[[`, character(1), "relative"), rep(expected_relative, length(callers)))
+    expect_identical(vapply(results, `[[`, character(1), "absolute"), rep(annotation_abs, length(callers)))
+    expect_identical(vapply(results, `[[`, character(1), "missing_absolute"), rep(missing_abs, length(callers)))
+    expect_identical(vapply(results, `[[`, character(1), "windows_style"), rep(windows_style, length(callers)))
+    expect_identical(vapply(results, `[[`, logical(1), "validation"), rep(TRUE, length(callers)))
+    expect_identical(record$counters$getwd_calls, 0L)
+    expect_length(record$counters$setwd_calls, 0L)
+})
+
+test_that("ncbi_resolve_cached_path never adopts an arbitrary caller cwd when no root is configured", {
+    record <- new_ncbi_domain_env()
+    work <- tempfile("cgv-cwd-ncbi-unset-")
+    dir.create(work, recursive = TRUE)
+    on.exit(unlink(work, recursive = TRUE, force = TRUE), add = TRUE)
+
+    old_root <- Sys.getenv("CGV_DATA_ROOT", unset = NA_character_)
+    old_app <- Sys.getenv("APP_DIR", unset = NA_character_)
+    on.exit({
+        if (is.na(old_root)) Sys.unsetenv("CGV_DATA_ROOT") else Sys.setenv(CGV_DATA_ROOT = old_root)
+        if (is.na(old_app)) Sys.unsetenv("APP_DIR") else Sys.setenv(APP_DIR = old_app)
+    }, add = TRUE)
+    Sys.unsetenv("CGV_DATA_ROOT")
+    Sys.unsetenv("APP_DIR")
+
+    annotation_rel <- "ncbi_downloads/GCF_000002.2/annotation.gff.gz"
+    genome_rel <- "ncbi_downloads/GCF_000002.2/genome.2bit"
+    callers <- file.path(work, c("caller-a", "caller-b", "caller-c"))
+    for (caller in callers) {
+        dir.create(file.path(caller, "ncbi_downloads", "GCF_000002.2"), recursive = TRUE)
+        writeLines("##gff-version 3", file.path(caller, annotation_rel))
+        writeLines("2bit", file.path(caller, genome_rel))
+    }
+
+    probe <- function(caller) {
+        old <- setwd(caller)
+        on.exit(setwd(old), add = TRUE)
+        list(
+            resolved = record$env$ncbi_resolve_cached_path(annotation_rel),
+            validation = isTRUE(record$env$ncbi_validate_cache_entry(
+                list(annotation_tabix = annotation_rel, genome_2bit = genome_rel)
+            )$ok)
+        )
+    }
+    results <- lapply(callers, probe)
+
+    expect_identical(vapply(results, `[[`, character(1), "resolved"), rep("", length(callers)))
+    expect_identical(vapply(results, `[[`, logical(1), "validation"), rep(FALSE, length(callers)))
+    expect_identical(record$counters$getwd_calls, 0L)
+    expect_length(record$counters$setwd_calls, 0L)
+})
+
+test_that("ncbi_resolve_cached_path anchors to the startup APP_DIR root when CGV_DATA_ROOT is unset", {
+    record <- new_ncbi_domain_env()
+    work <- tempfile("cgv-cwd-ncbi-appdir-")
+    dir.create(work, recursive = TRUE)
+    on.exit(unlink(work, recursive = TRUE, force = TRUE), add = TRUE)
+
+    old_root <- Sys.getenv("CGV_DATA_ROOT", unset = NA_character_)
+    old_app <- Sys.getenv("APP_DIR", unset = NA_character_)
+    on.exit({
+        if (is.na(old_root)) Sys.unsetenv("CGV_DATA_ROOT") else Sys.setenv(CGV_DATA_ROOT = old_root)
+        if (is.na(old_app)) Sys.unsetenv("APP_DIR") else Sys.setenv(APP_DIR = old_app)
+    }, add = TRUE)
     Sys.unsetenv("CGV_DATA_ROOT")
 
-    old_wd <- setwd(work)
-    on.exit(setwd(old_wd), add = TRUE)
+    app_root <- file.path(work, "app-root")
+    acc_dir <- file.path(app_root, "ncbi_downloads", "GCF_000004.4")
+    dir.create(acc_dir, recursive = TRUE)
+    annotation_rel <- "ncbi_downloads/GCF_000004.4/annotation.gff.gz"
+    genome_rel <- "ncbi_downloads/GCF_000004.4/genome.2bit"
+    writeLines("##gff-version 3", file.path(app_root, annotation_rel))
+    writeLines("2bit", file.path(app_root, genome_rel))
+    Sys.setenv(APP_DIR = app_root)
 
-    resolved <- record$env$ncbi_resolve_cached_path("ncbi_downloads/missing/file.gz")
-    canonical_root <- record$env$get_cgv_data_root(".")
-    expect_identical(
-        normalizePath(resolved, winslash = "/", mustWork = FALSE),
-        normalizePath(file.path(canonical_root, "ncbi_downloads/missing/file.gz"),
-                      winslash = "/", mustWork = FALSE)
-    )
+    callers <- file.path(work, c("caller-a", "caller-b", "caller-c"))
+    for (caller in callers) dir.create(caller, recursive = TRUE)
+    dir.create(file.path(callers[[1]], "ncbi_downloads", "GCF_000004.4"), recursive = TRUE)
+    writeLines("decoy", file.path(callers[[1]], annotation_rel))
+    writeLines("decoy", file.path(callers[[1]], genome_rel))
+
+    expected <- file.path(normalizePath(app_root, winslash = "/", mustWork = TRUE), annotation_rel)
+    probe <- function(caller) {
+        old <- setwd(caller)
+        on.exit(setwd(old), add = TRUE)
+        list(
+            resolved = record$env$ncbi_resolve_cached_path(annotation_rel),
+            validation = isTRUE(record$env$ncbi_validate_cache_entry(
+                list(annotation_tabix = annotation_rel, genome_2bit = genome_rel)
+            )$ok)
+        )
+    }
+    results <- lapply(callers, probe)
+
+    expect_identical(vapply(results, `[[`, character(1), "resolved"), rep(expected, length(callers)))
+    expect_identical(vapply(results, `[[`, logical(1), "validation"), rep(TRUE, length(callers)))
     expect_identical(record$counters$getwd_calls, 0L)
+    expect_length(record$counters$setwd_calls, 0L)
 })
 
 test_that("request-time shared runtime does not call setwd or getwd", {
