@@ -1,0 +1,3 @@
+R version 4.4.3 (2025-02-28)
+ aarch64-apple-darwin20
+Rsamtools 2.22.0 future 1.68.0 testthat 3.3.2

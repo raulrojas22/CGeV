@@ -1,0 +1,10 @@
+A: AAAATTTTAAAATTTT AAAAAAAA
+A T C G
+8 0 0 0
+B exact: CCCCGGGGCCCCGGGG expected CCCCGGGGCCCCGGGG
+B unseen: TTTT expected GGGG
+B splice: AAAAAAAA expected CCCCCCCC
+A T C G
+8 0 0 0
+deleted splice:
+recreated: CCCCGGGGCCCCGGGG

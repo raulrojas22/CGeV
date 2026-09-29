@@ -1,0 +1,45 @@
+final focused tests 21 passed 344 failed 0 errors 0 skipped 0
+                                                                       test
+                                bases and composition follow atomic indexed
+                               bases and composition follow rewrite indexed
+                             bases and composition follow same-size indexed
+                       bases and composition follow preserved-mtime indexed
+                               bases and composition follow atomic fallback
+                              bases and composition follow rewrite fallback
+                            bases and composition follow same-size fallback
+                      bases and composition follow preserved-mtime fallback
+              unchanged inputs reuse values and unrelated genomes stay warm
+                    deletion fails closed and recreation observes new bases
+        header, seqname and resolution follow source and index replacements
+          composition rejects supplied sequence without matching provenance
+                        repeated replacements retain one bounded generation
+                relative paths and retargeted symlinks return current bases
+                 truncated or malformed replacement cannot return old bases
+    persistent multisession worker follows multiple replacements in one PID
+     2bit metadata, offsets and sidecars reject preserved-mtime replacement
+        copied sequence memo state is checked against the worker filesystem
+                     changed FASTA layout cannot reuse an old on-disk index
+ a replacement during composition extraction cannot poison the next version
+          2bit sidecar writes reject seqnames from an older source identity
+ passed failed error
+      7      0 FALSE
+      7      0 FALSE
+      7      0 FALSE
+      9      0 FALSE
+      7      0 FALSE
+      7      0 FALSE
+      7      0 FALSE
+      9      0 FALSE
+     37      0 FALSE
+     15      0 FALSE
+      7      0 FALSE
+      2      0 FALSE
+    146      0 FALSE
+     16      0 FALSE
+      9      0 FALSE
+      9      0 FALSE
+      9      0 FALSE
+      7      0 FALSE
+     25      0 FALSE
+      1      0 FALSE
+      1      0 FALSE

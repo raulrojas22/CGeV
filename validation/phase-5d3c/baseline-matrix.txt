@@ -1,0 +1,31 @@
+atomic indexed exact= CCCCGGGGCCCCGGGG unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+rewrite indexed exact= CCCCGGGGCCCCGGGG unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+same-size indexed exact= CCCCGGGGCCCCGGGG unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+preserved-mtime indexed exact= CCCCGGGGCCCCGGGG unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+deletion FALSE interval=  splice=
+delete-recreate indexed exact= CCCCGGGGCCCCGGGG unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+atomic fallback exact= AAAATTTTAAAATTTT unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+rewrite fallback exact= AAAATTTTAAAATTTT unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+same-size fallback exact= AAAATTTTAAAATTTT unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+preserved-mtime fallback exact= AAAATTTTAAAATTTT unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+deletion TRUE interval=  splice=
+delete-recreate fallback exact= AAAATTTTAAAATTTT unseen= TTTT splice= AAAAAAAA counts= 8,0,0,0
+$pid
+[1] 66349
+
+$seq
+[1] "AAAAAAAA"
+
+$counts
+A T C G
+8 0 0 0
+
+$pid
+[1] 66349
+
+$seq
+[1] "AAAAAAAA"
+
+$counts
+A T C G
+8 0 0 0

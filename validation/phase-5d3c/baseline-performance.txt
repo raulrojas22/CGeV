@@ -1,0 +1,23 @@
+[1] "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC"
+$composition
+[1] "Sequence Composition: A = 26.00%\tT = 24.00%  C = 26.00%  G = 24.00%"
+
+$length
+[1] 150
+
+$known_total
+[1] 150
+
+$counts
+ A  T  C  G
+39 36 39 36
+
+$sequence_optional
+NULL
+
+normalizePath 11.5 us/call
+file.info 73 us/call
+lookup 5.5 us/call
+interval-hit 24.5 us/call
+splice-hit 318 us/call
+composition-hit 465.5 us/call

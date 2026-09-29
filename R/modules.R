@@ -25,7 +25,7 @@ sequence_prefetch_future_globals <- function(run, kind = c("homo", "ortho")) {
     state_names <- c("annotation_memory_cache_limits", ".cache_access_counter")
     if (isTRUE(args$local_need_sequence) ||
         (isTRUE(args$local_gs_ok) && (kind == "ortho" || isTRUE(args$local_need_gc_span)))) {
-        state_names <- c(state_names, ".seq_extract_cache", if (is_twobit_file(args$local_genome))
+        state_names <- c(state_names, ".sequence_file_state", ".seq_extract_cache", if (is_twobit_file(args$local_genome))
             c(".twobit_seqinfo_cache", ".twobit_native_index_cache") else
             c(".fasta_fallback_seq_cache", ".fasta_header_cache", ".fasta_seqnames_cache",
               ".fasta_resolved_seqname_cache"))

@@ -812,6 +812,7 @@ resolve_genome_fasta <- function(det_info = NULL, uploaded_fasta_path = NULL, ge
 
 # --- 3. CACHÉ Y PARSEO DE GFF ---
 
+.sequence_file_state <- new.env(parent = emptyenv())
 .fasta_header_cache <- new.env(parent = emptyenv())
 .fasta_seqnames_cache <- new.env(parent = emptyenv())
 .fasta_resolved_seqname_cache <- new.env(parent = emptyenv())
@@ -7201,7 +7202,91 @@ run_cached_canonical_lastz <- function(cache_key,
 
 # --- 4. FASTA Y SECUENCIAS ---
 
+# Sequence identities are numeric, so timestamp precision is never lost to
+# formatting. One stat call covers the source and its FASTA index companions.
+sequence_file_identity <- function(path) {
+    raw <- as.character(path %||% "")[1L]
+    if (is.na(raw) || !nzchar(raw)) return(NULL)
+    p <- normalizePath(raw, winslash = "/", mustWork = FALSE)
+    if (!startsWith(p, "/") && !grepl("^[A-Za-z]:", p)) {
+        p <- file.path(normalizePath(dirname(p), winslash = "/", mustWork = FALSE), basename(p))
+    }
+    paths <- c(p, paste0(p, ".fai"), paste0(p, ".gzi"))
+    fi <- file.info(paths)
+    number <- function(x) { x <- as.numeric(x); x[is.na(x)] <- NA_real_; x }
+    list(path = p, size = number(fi$size), mtime = number(fi$mtime),
+         ctime = number(fi$ctime), valid = !is.na(fi$size[1L]) && !isTRUE(fi$isdir[1L]))
+}
+
+sequence_cache_purge <- function(path) {
+    caches <- list(.seq_extract_cache, .spliced_seq_cache, .fasta_fallback_seq_cache,
+                   .fasta_header_cache, .fasta_seqnames_cache, .fasta_resolved_seqname_cache,
+                   .fafile_handle_cache, .twobit_seqinfo_cache, .twobit_handle_cache,
+                   .twobit_native_index_cache, .transcript_composition_cache)
+    for (env in caches) {
+        keys <- cache_env_entry_keys(env)
+        keys <- keys[keys == path | startsWith(keys, paste0(path, "::")) |
+                     startsWith(keys, paste0(path, "||"))]
+        for (key in keys) cache_env_drop(env, key)
+    }
+    invisible(NULL)
+}
+
+sequence_cache_validate <- function(path) {
+    id <- sequence_file_identity(path)
+    if (is.null(id)) return(NULL)
+    previous <- get0(id$path, .sequence_file_state, inherits = FALSE)
+    if (is.null(previous) || !identical(previous$identity, id)) {
+        # Also distrust imported memo tables for which this runtime has no
+        # provenance. No session or worker broadcast is needed.
+        sequence_cache_purge(id$path)
+        source_changed <- !is.null(previous) &&
+            !identical(lapply(previous$identity[c("size", "mtime", "ctime")], `[`, 1L),
+                       lapply(id[c("size", "mtime", "ctime")], `[`, 1L))
+        index_unchanged <- !is.null(previous) &&
+            identical(lapply(previous$identity[c("size", "mtime", "ctime")], `[`, -1L),
+                      lapply(id[c("size", "mtime", "ctime")], `[`, -1L))
+        # An unchanged index must not survive a source replacement. On first
+        # observation (including provenance eviction), an older index is also
+        # untrusted. Missing indexes may still be built by the existing path.
+        index_exists <- !is.na(id$size[2L])
+        older_index <- isTRUE(id$mtime[2L] < id$mtime[1L]) ||
+            isTRUE(id$ctime[2L] < id$ctime[1L])
+        stale_index <- index_exists && (older_index ||
+            (isTRUE(index_unchanged) && (isTRUE(source_changed) || isTRUE(previous$stale_index))))
+        assign(id$path, list(identity = id, stale_index = stale_index), .sequence_file_state)
+        # Bound small provenance state as well as sequence values. Eviction
+        # drops that path's memo tables before forgetting its identity.
+        keys <- ls(.sequence_file_state, all.names = TRUE)
+        if (length(keys) > 200L) {
+            victim <- setdiff(keys, id$path)[1L]
+            sequence_cache_purge(victim)
+            rm(list = victim, envir = .sequence_file_state)
+        }
+    }
+    id
+}
+
+sequence_cache_finish <- function(identity) {
+    if (!is.null(identity) && !identical(identity, sequence_file_identity(identity$path))) {
+        # A replacement during extraction must never leave old results under
+        # a newer identity installed by a nested extraction.
+        sequence_cache_purge(identity$path)
+    }
+    invisible(NULL)
+}
+
+sequence_fasta_index_usable <- function(path) {
+    state <- get0(path, .sequence_file_state, inherits = FALSE)
+    !is.null(state) && !isTRUE(state$stale_index)
+}
+
 get_fasta_header_map <- function(fasta_path) {
+    sequence_identity <- sequence_cache_validate(fasta_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return(list(seqname_to_header = list(), chrom_to_seqname = list()))
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    fasta_path <- sequence_identity$path
+
     key <- normalizePath(fasta_path, winslash = "/", mustWork = FALSE)
     if (exists(key, envir = .fasta_header_cache, inherits = FALSE)) {
         return(get(key, envir = .fasta_header_cache, inherits = FALSE))
@@ -7233,6 +7318,12 @@ get_fasta_header_map <- function(fasta_path) {
 }
 
 get_fasta_index_seqnames <- function(fasta_path) {
+    sequence_identity <- sequence_cache_validate(fasta_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return(character(0))
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    fasta_path <- sequence_identity$path
+    if (!sequence_fasta_index_usable(fasta_path)) return(character(0))
+
     key <- normalizePath(fasta_path, winslash = "/", mustWork = FALSE)
     if (exists(key, envir = .fasta_seqnames_cache, inherits = FALSE)) {
         return(get(key, envir = .fasta_seqnames_cache, inherits = FALSE))
@@ -7263,6 +7354,12 @@ get_fasta_index_seqnames <- function(fasta_path) {
 }
 
 get_cached_fafile <- function(fasta_path) {
+    sequence_identity <- sequence_cache_validate(fasta_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return(NULL)
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    fasta_path <- sequence_identity$path
+    if (!sequence_fasta_index_usable(fasta_path)) return(NULL)
+
     if (!requireNamespace("Rsamtools", quietly = TRUE)) {
         return(NULL)
     }
@@ -7285,6 +7382,11 @@ get_cached_fafile <- function(fasta_path) {
 }
 
 resolve_seqname_in_fasta <- function(fasta_path, seqid, seq_names = NULL) {
+    sequence_identity <- sequence_cache_validate(fasta_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return(NULL)
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    fasta_path <- sequence_identity$path
+
     seqid <- as.character(seqid %||% "")
     if (!nzchar(seqid)) {
         return(NULL)
@@ -7412,16 +7514,9 @@ twobit_seqnames_sidecar_path <- function(two_bit_path, base_dir = ".") {
 }
 
 twobit_file_fingerprint <- function(two_bit_path) {
-    p <- normalizePath(as.character(two_bit_path %||% ""), winslash = "/", mustWork = FALSE)
-    if (!nzchar(p) || !file.exists(p)) {
-        return(NULL)
-    }
-    info <- file.info(p)
-    list(
-        path = p,
-        size = suppressWarnings(as.numeric(info$size[1] %||% NA_real_)),
-        mtime = suppressWarnings(as.numeric(info$mtime[1] %||% NA_real_))
-    )
+    id <- sequence_file_identity(two_bit_path)
+    if (is.null(id) || !isTRUE(id$valid)) return(NULL)
+    list(path = id$path, size = id$size[1L], mtime = id$mtime[1L], ctime = id$ctime[1L])
 }
 
 read_twobit_seqnames_sidecar <- function(two_bit_path, base_dir = ".") {
@@ -7448,7 +7543,8 @@ read_twobit_seqnames_sidecar <- function(two_bit_path, base_dir = ".") {
             is.finite(as.numeric(obj$source_size %||% NA_real_)) &&
             is.finite(as.numeric(obj$source_mtime %||% NA_real_)) &&
             identical(as.numeric(obj$source_size), as.numeric(fp$size)) &&
-            abs(as.numeric(obj$source_mtime) - as.numeric(fp$mtime)) < 1e-6
+            identical(as.numeric(obj$source_mtime), as.numeric(fp$mtime)) &&
+            identical(obj$source_ctime, fp$ctime)
         if (isTRUE(valid)) {
             return(as.character(obj$seqnames))
         }
@@ -7456,8 +7552,13 @@ read_twobit_seqnames_sidecar <- function(two_bit_path, base_dir = ".") {
     NULL
 }
 
-write_twobit_seqnames_sidecar <- function(two_bit_path, seqnames, base_dir = ".") {
+write_twobit_seqnames_sidecar <- function(two_bit_path, seqnames, base_dir = ".", source_identity = NULL) {
     fp <- twobit_file_fingerprint(two_bit_path)
+    if (!is.null(source_identity)) {
+        expected <- list(path = source_identity$path, size = source_identity$size[1L],
+                         mtime = source_identity$mtime[1L], ctime = source_identity$ctime[1L])
+        if (!identical(fp, expected)) return(invisible(FALSE))
+    }
     vals <- as.character(seqnames %||% character(0))
     vals <- vals[!is.na(vals) & nzchar(vals)]
     if (is.null(fp) || length(vals) == 0L) {
@@ -7468,6 +7569,7 @@ write_twobit_seqnames_sidecar <- function(two_bit_path, seqnames, base_dir = "."
         source_path = canonical_cache_identity_path(fp$path, base_dir = base_dir),
         source_size = as.numeric(fp$size),
         source_mtime = as.numeric(fp$mtime),
+        source_ctime = fp$ctime,
         seqnames = vals,
         created_at = as.numeric(Sys.time())
     )
@@ -7488,15 +7590,14 @@ read_twobit_u32 <- function(con, n = 1L, endian = "little") {
 }
 
 read_twobit_native_index <- function(two_bit_path) {
+    sequence_identity <- sequence_cache_validate(two_bit_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return(NULL)
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    two_bit_path <- sequence_identity$path
+
     path <- normalizePath(as.character(two_bit_path %||% ""), winslash = "/", mustWork = FALSE)
     if (!nzchar(path) || !file.exists(path)) return(NULL)
-    file_meta <- file.info(path)
-    cache_key <- paste(
-        path,
-        as.character(file_meta$size[1] %||% ""),
-        as.character(as.numeric(file_meta$mtime[1] %||% NA_real_)),
-        sep = "::"
-    )
+    cache_key <- path
     cached <- cache_env_get(.twobit_native_index_cache, cache_key, default = NULL)
     if (!is.null(cached)) return(cached)
 
@@ -7623,6 +7724,11 @@ extract_sequence_from_2bit_native <- function(two_bit_path, seqid, start_pos, en
 }
 
 get_twobit_seqnames <- function(two_bit_path, base_dir = ".") {
+    sequence_identity <- sequence_cache_validate(two_bit_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return(character(0))
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    two_bit_path <- sequence_identity$path
+
     if (is.null(two_bit_path) || !nzchar(two_bit_path) || !file.exists(two_bit_path)) {
         return(character(0))
     }
@@ -7643,7 +7749,7 @@ get_twobit_seqnames <- function(two_bit_path, base_dir = ".") {
         native_seqnames <- native_seqnames[nzchar(native_seqnames)]
         if (length(native_seqnames) > 0L) {
             assign(key, native_seqnames, envir = .twobit_seqinfo_cache)
-            tryCatch(write_twobit_seqnames_sidecar(key, native_seqnames, base_dir = base_dir), error = function(e) FALSE)
+            tryCatch(write_twobit_seqnames_sidecar(key, native_seqnames, base_dir = base_dir, source_identity = sequence_identity), error = function(e) FALSE)
             return(native_seqnames)
         }
     }
@@ -7668,12 +7774,17 @@ get_twobit_seqnames <- function(two_bit_path, base_dir = ".") {
     )
     assign(key, out, envir = .twobit_seqinfo_cache)
     if (length(out) > 0L) {
-        tryCatch(write_twobit_seqnames_sidecar(key, out, base_dir = base_dir), error = function(e) FALSE)
+        tryCatch(write_twobit_seqnames_sidecar(key, out, base_dir = base_dir, source_identity = sequence_identity), error = function(e) FALSE)
     }
     out
 }
 
 extract_sequence_from_2bit <- function(two_bit_path, seqid, start_pos, end_pos) {
+    sequence_identity <- sequence_cache_validate(two_bit_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return("")
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    two_bit_path <- sequence_identity$path
+
     if (is.null(two_bit_path) || !nzchar(two_bit_path) || !file.exists(two_bit_path)) {
         return("")
     }
@@ -7776,6 +7887,11 @@ extract_sequence_from_2bit <- function(two_bit_path, seqid, start_pos, end_pos) 
 }
 
 extract_sequence_from_fasta <- function(fasta_path, seqid, start_pos, end_pos) {
+    sequence_identity <- sequence_cache_validate(fasta_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return("")
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    fasta_path <- sequence_identity$path
+
     if (is.null(fasta_path) || !file.exists(fasta_path)) {
         return("")
     }
@@ -7831,7 +7947,7 @@ extract_sequence_from_fasta <- function(fasta_path, seqid, start_pos, end_pos) {
     }
 
     resolved_seqname <- NULL
-    if (requireNamespace("Rsamtools", quietly = TRUE)) {
+    if (sequence_fasta_index_usable(fasta_path) && requireNamespace("Rsamtools", quietly = TRUE)) {
         res_rsam <- tryCatch(
             {
                 fa <- get_cached_fafile(fasta_path)
@@ -8004,6 +8120,11 @@ normalize_exon_ranges <- function(exon_ranges) {
 }
 
 extract_spliced_exon_sequence <- function(fasta_path, seqid, exon_ranges, strand = "+") {
+    sequence_identity <- sequence_cache_validate(fasta_path)
+    if (is.null(sequence_identity) || !isTRUE(sequence_identity$valid)) return("")
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
+    fasta_path <- sequence_identity$path
+
     ex <- normalize_exon_ranges(exon_ranges)
     if (nrow(ex) == 0) {
         return("")
@@ -8188,7 +8309,7 @@ extract_spliced_exon_sequence <- function(fasta_path, seqid, exon_ranges, strand
     # Fast path: one FASTA handle + one batched scan for all exons.
     # This preserves exon-by-exon splicing semantics but avoids repeated
     # open/index/close overhead per exon.
-    if (length(parts) == 0 && !is_twobit_file(fasta_path) && requireNamespace("Rsamtools", quietly = TRUE)) {
+    if (length(parts) == 0 && !is_twobit_file(fasta_path) && sequence_fasta_index_usable(fasta_path) && requireNamespace("Rsamtools", quietly = TRUE)) {
         parts <- tryCatch(
             {
                 fa <- get_cached_fafile(fasta_path)
@@ -8263,21 +8384,18 @@ extract_spliced_exon_sequence <- function(fasta_path, seqid, exon_ranges, strand
 
 get_transcript_composition_cache_key <- function(genome_path, seqid, exon_ranges, strand = "+") {
     gp <- normalizePath(as.character(genome_path %||% ""), winslash = "/", mustWork = FALSE)
-    fi_sig <- ""
-    if (nzchar(gp) && file.exists(gp)) {
-        fi <- file.info(gp)
-        fi_sig <- paste(as.character(fi$size[1] %||% ""), as.character(as.numeric(fi$mtime[1] %||% NA_real_)), sep = ":")
-    }
     ex <- normalize_exon_ranges(exon_ranges)
     exon_sig <- if (nrow(ex) > 0L) {
         paste(paste0(as.integer(round(ex$start)), "-", as.integer(round(ex$end))), collapse = ";")
     } else {
         ""
     }
-    paste(gp, fi_sig, as.character(seqid %||% ""), toupper(trimws(as.character(strand %||% "+"))), exon_sig, sep = "||")
+    paste(gp, as.character(seqid %||% ""), toupper(trimws(as.character(strand %||% "+"))), exon_sig, sep = "||")
 }
 
-get_transcript_composition_cached <- function(genome_path, seqid, exon_ranges, strand = "+", spliced_sequence = NULL) {
+get_transcript_composition_cached <- function(genome_path, seqid, exon_ranges, strand = "+", spliced_sequence = NULL, spliced_identity = NULL) {
+    sequence_identity <- sequence_cache_validate(genome_path)
+    on.exit(sequence_cache_finish(sequence_identity), add = TRUE)
     key <- get_transcript_composition_cache_key(genome_path, seqid, exon_ranges, strand = strand)
     cached <- cache_env_get(.transcript_composition_cache, key, default = NULL)
     if (!is.null(cached) && is.list(cached) && nzchar(as.character(cached$composition %||% ""))) {
@@ -8287,7 +8405,7 @@ get_transcript_composition_cached <- function(genome_path, seqid, exon_ranges, s
     # fetch_gene_data_sync has already extracted this exact transcript. Other
     # callers continue to resolve it here. An empty supplied transcript must not
     # be replaced by the genomic fallback sequence (its semantics differ).
-    seq_txt <- spliced_sequence
+    seq_txt <- if (!is.null(spliced_identity) && identical(spliced_identity, sequence_identity)) spliced_sequence else NULL
     if (is.null(seq_txt)) seq_txt <- extract_spliced_exon_sequence(genome_path, seqid, exon_ranges, strand = strand)
     seq_clean <- toupper(gsub("\\s+", "", as.character(seq_txt %||% "")))
     counts <- count_sequence_bases(seq_clean)
@@ -8299,7 +8417,10 @@ get_transcript_composition_cached <- function(genome_path, seqid, exon_ranges, s
         counts = counts,
         sequence_optional = NULL
     )
-    cache_env_set(.transcript_composition_cache, key, out, max_size = 2000L, max_bytes = 16 * 1024^2)
+    if (!is.null(sequence_identity) && isTRUE(sequence_identity$valid) &&
+        identical(sequence_identity, sequence_file_identity(genome_path))) {
+        cache_env_set(.transcript_composition_cache, key, out, max_size = 2000L, max_bytes = 16 * 1024^2)
+    }
     out
 }
 
@@ -10123,6 +10244,7 @@ fetch_gene_data_sync <- function(chr_name, gene_coords, fasta_path = NULL, fasta
             start_pos <- suppressWarnings(as.numeric(gene_coords$start %||% NA_real_))
             end_pos <- suppressWarnings(as.numeric(gene_coords$end %||% NA_real_))
             spliced_fetch_t0 <- app_perf_now()
+            spliced_identity <- sequence_file_identity(fasta_path)
             seq_str <- extract_spliced_exon_sequence(fasta_path, chr_name, exon_ranges = exon_ranges, strand = strand)
             spliced_sequence <- seq_str
             app_perf_mark_ms(fetch_perf, "spliced_sequence_ms", app_perf_elapsed_ms(spliced_fetch_t0), "SEQ")
@@ -10137,7 +10259,7 @@ fetch_gene_data_sync <- function(chr_name, gene_coords, fasta_path = NULL, fasta
                 !is.null(exon_ranges) && nrow(normalize_exon_ranges(exon_ranges)) > 0L) {
                 comp_info <- tryCatch(
                     get_transcript_composition_cached(fasta_path, chr_name, exon_ranges, strand = strand,
-                                                     spliced_sequence = spliced_sequence),
+                                                     spliced_sequence = spliced_sequence, spliced_identity = spliced_identity),
                     error = function(e) NULL
                 )
             }

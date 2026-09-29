@@ -1,0 +1,144 @@
+"file"	"test"	"nb"	"failed"	"skipped"	"error"	"warning"	"passed"	"real"
+"test-alias-cache-invalidation.R"	"SQLite unchanged lookup reuses the handle and scientific result"	7	0	FALSE	FALSE	0	7	0.254
+"test-alias-cache-invalidation.R"	"SQLite result follows atomic replacement"	6	0	FALSE	FALSE	0	6	1.223
+"test-alias-cache-invalidation.R"	"SQLite result follows truncate replacement"	5	0	FALSE	FALSE	0	5	1.219
+"test-alias-cache-invalidation.R"	"SQLite result follows same-size replacement"	6	0	FALSE	FALSE	0	6	1.233
+"test-alias-cache-invalidation.R"	"SQLite result follows preserved-mtime replacement"	7	0	FALSE	FALSE	0	7	1.277
+"test-alias-cache-invalidation.R"	"SQLite deletion purges old inode and recreation returns new result"	6	0	FALSE	FALSE	0	6	0.077
+"test-alias-cache-invalidation.R"	"identity state follows LRU, purge and close-all lifecycle"	9	0	FALSE	FALSE	0	9	0.069
+"test-alias-cache-invalidation.R"	"legacy TSV cache hit avoids reparsing and rewrite changes result"	6	0	FALSE	FALSE	0	6	0.126
+"test-alias-cache-invalidation.R"	"legacy same-size preserved-mtime TSV uses ctime"	4	0	FALSE	FALSE	0	4	1.184
+"test-alias-cache-invalidation.R"	"identity keeps fractional timestamps and deterministic absent ctime"	6	0	FALSE	FALSE	0	6	0.0459999999999994
+"test-alias-cache-invalidation.R"	"persistent multisession worker independently refreshes alias result"	7	0	FALSE	FALSE	0	7	0.748
+"test-aligned-correlation-scheduling.R"	"aligned correlations bypass future global export"	6	0	FALSE	FALSE	0	6	0.0250000000000004
+"test-aligned-correlation-scheduling.R"	"in-process aligned correlation keeps order, arguments, and failure isolation"	11	0	FALSE	FALSE	0	11	0.0259999999999998
+"test-aligned-fast-path-scope.R"	"aligned fast path updates geometry modes in its render scope"	5	0	FALSE	FALSE	0	5	0.0180000000000007
+"test-alignment-lazy-mode.R"	"card registration defaults to progressive one-card batches"	22	0	FALSE	FALSE	0	22	0.0570000000000004
+"test-alignment-lazy-mode.R"	"hidden Alignment work remains lazy in compact mode"	20	0	FALSE	FALSE	0	20	0.0779999999999994
+"test-autocomplete-normalized-cache.R"	"batched normalization preserves scalar values and names, including bad escapes"	5	0	FALSE	FALSE	0	5	0.0300000000000002
+"test-autocomplete-normalized-cache.R"	"unchanged choices avoid normalization and disk reads; revisions invalidate"	10	0	FALSE	FALSE	0	10	0.280999999999999
+"test-autocomplete-normalized-cache.R"	"valid sidecar keys are reused and mismatched choices fall back safely"	6	0	FALSE	FALSE	0	6	0.027000000000001
+"test-autocomplete-normalized-cache.R"	"derived key cache is bounded without losing results after eviction"	5	0	FALSE	FALSE	0	5	0.856999999999999
+"test-autocomplete-normalized-cache.R"	"multi-gene and cross-species cached searches retain all rows and ranking"	58	0	FALSE	FALSE	0	58	1.141
+"test-cache-warm-tabix-flag.R"	"annotation Tabix warm-up is opt-in across fallback paths"	5	0	FALSE	FALSE	0	5	0.0149999999999988
+"test-compact-gene-index.R"	"flat ranges preserve all alias rows, collisions, absences and order"	35	0	FALSE	FALSE	0	35	0.0410000000000004
+"test-compact-gene-index.R"	"empty and entirely shared maps survive serialization"	12	0	FALSE	FALSE	0	12	0.00500000000000078
+"test-compact-gene-index.R"	"compact disk caches retain the legacy file for rollback and invalidate on revision"	6	0	FALSE	FALSE	0	6	0.0380000000000003
+"test-compact-girafe-svg-html.R"	"whitespace between tags is removed"	1	0	FALSE	FALSE	0	1	0.000999999999999446
+"test-compact-girafe-svg-html.R"	"high-precision tag attributes are rounded and trimmed"	1	0	FALSE	FALSE	0	1	0.0140000000000011
+"test-compact-girafe-svg-html.R"	"text-node precision is never touched"	2	0	FALSE	FALSE	0	2	0.00299999999999834
+"test-compact-girafe-svg-html.R"	"non-numeric and multibyte content is preserved"	2	0	FALSE	FALSE	0	2	0.00200000000000067
+"test-compact-girafe-svg-html.R"	"candidates that only appear in text nodes do not trigger tag work"	1	0	FALSE	FALSE	0	1	0.000999999999999446
+"test-compact-girafe-svg-html.R"	"fast path is exactly whitespace removal when no candidate exists"	1	0	FALSE	FALSE	0	1	0
+"test-compact-girafe-svg-html.R"	"invalid decimals short-circuit after whitespace removal"	3	0	FALSE	FALSE	0	3	0.00500000000000078
+"test-compact-girafe-svg-html.R"	"candidate matches reference byte-for-byte on mixed payloads"	5	0	FALSE	FALSE	0	5	0.0399999999999991
+"test-compact-girafe-svg-html.R"	"NA input preserves baseline behavior"	2	0	FALSE	FALSE	0	2	0.000999999999999446
+"test-compact-girafe-svg-html.R"	"multi-element vectors preserve baseline behavior"	3	0	FALSE	FALSE	0	3	0.00400000000000134
+"test-compact-girafe-svg-html.R"	"tag-boundary and delimiter edge cases match baseline"	8	0	FALSE	FALSE	0	8	0.00600000000000023
+"test-compact-girafe-svg-html.R"	"fractional-digit boundary and quoting are exact"	3	0	FALSE	FALSE	0	3	0.00199999999999889
+"test-compact-girafe-svg-html.R"	"multibyte prefixes and overflow values match baseline"	4	0	FALSE	FALSE	0	4	0.00400000000000134
+"test-compact-girafe-svg-html.R"	"attributes and class follow baseline semantics"	8	0	FALSE	FALSE	0	8	0.00600000000000023
+"test-compact-girafe-svg-html.R"	"tag-free attributed input is returned unchanged"	4	0	FALSE	FALSE	0	4	0.00299999999999834
+"test-compact-girafe-svg-html.R"	"Latin-1 and bytes-marked inputs match baseline raw bytes"	7	0	FALSE	FALSE	0	7	0.00300000000000011
+"test-compact-girafe-svg-html.R"	"the fast branch skips tag extraction for candidate-free payloads"	3	0	FALSE	FALSE	0	3	0.00300000000000011
+"test-compact-girafe-svg-html.R"	"the slow branch still runs the original tag pipeline"	2	0	FALSE	FALSE	0	2	0.004999999999999
+"test-compiled-runtime.R"	"compiled expressions create independent runtime environments"	6	0	FALSE	FALSE	0	6	0.0289999999999999
+"test-compiled-runtime.R"	"missing, stale and disabled bytecode use source"	5	0	FALSE	FALSE	0	5	0.0109999999999992
+"test-compiled-runtime.R"	"incompatible or damaged artifacts fall back before evaluation"	6	0	FALSE	FALSE	0	6	0.00999999999999979
+"test-compiled-runtime.R"	"runtime evaluation errors never trigger a second evaluation"	2	0	FALSE	FALSE	0	2	0.00399999999999956
+"test-compiled-runtime.R"	"the server loader returns the compiled function in the live environment"	4	0	FALSE	FALSE	0	4	0.00399999999999956
+"test-compiled-runtime.R"	"Shiny does not shadow explicitly loaded functions or duplicate state"	10	0	FALSE	FALSE	0	10	0.0750000000000011
+"test-compiled-runtime.R"	"every R helper has an explicit loader when Shiny autoload is disabled"	1	0	FALSE	FALSE	0	1	0.0220000000000002
+"test-first-paint-session-close.R"	"paint timeouts never read reactive state after the session closes"	4	0	FALSE	FALSE	0	4	0.032
+"test-first-paint-session-close.R"	"live-session timeouts still release the current gate only"	6	0	FALSE	FALSE	0	6	0.00900000000000034
+"test-gene-plot-model-cache-identity.R"	"model identity covers the complete input, even with the same locus span"	9	0	FALSE	FALSE	0	9	0.00900000000000034
+"test-gene-plot-model-cache-identity.R"	"model keys include only the inputs used by model preparation"	9	0	FALSE	FALSE	0	9	0.0199999999999996
+"test-gene-plot-model-cache-identity.R"	"reused models are immutable and keep their bounded LRU behavior"	3	0	FALSE	FALSE	0	3	0.00700000000000145
+"test-girafe-shared-cache-identity.R"	"shared final-widget identity separates display, payloads and file versions"	10	0	FALSE	FALSE	0	10	0.0150000000000006
+"test-girafe-shared-cache-identity.R"	"fallback renders cannot populate the global widget cache"	13	0	FALSE	FALSE	0	13	0.0109999999999992
+"test-girafe-shared-cache-identity.R"	"safe entries retain LRU eviction and disabled-cache behavior"	5	0	FALSE	FALSE	0	5	0.00399999999999956
+"test-homologous-hydrated-lifecycle.R"	"destroying one homologous plot prunes only that hydrated id"	2	0	FALSE	FALSE	0	2	0.120000000000001
+"test-homologous-hydrated-lifecycle.R"	"destroying a canonical copy prunes only the copy lifecycle id"	1	0	FALSE	FALSE	0	1	0.206999999999999
+"test-homologous-hydrated-lifecycle.R"	"group removal prunes the removed gene ids, copies, and keeps unrelated hydrated ids"	2	0	FALSE	FALSE	0	2	0.0149999999999988
+"test-homologous-hydrated-lifecycle.R"	"whole-panel clear resets the hydrated lifecycle"	3	0	FALSE	FALSE	0	3	0.0140000000000011
+"test-homologous-hydrated-lifecycle.R"	"clear unblocks re-hydration after ID reuse (A to B to A proxy)"	1	0	FALSE	FALSE	0	1	0.00999999999999979
+"test-homologous-hydrated-lifecycle.R"	"repeated expand/clear cycles do not accumulate hydrated ids"	3	0	FALSE	FALSE	0	3	0.0180000000000007
+"test-homologous-hydrated-lifecycle.R"	"lifecycle domain remains backward compatible without the hydrated rv"	2	0	FALSE	FALSE	0	2	0.00999999999999979
+"test-homologous-hydrated-lifecycle.R"	"server.R wires the hydrated lifecycle into the plot lifecycle domain"	5	0	FALSE	FALSE	0	5	0.0289999999999999
+"test-isoform-collapse-pending.R"	"the real session rejects options for an unregistered output"	1	0	FALSE	FALSE	0	1	0.00300000000000011
+"test-isoform-collapse-pending.R"	"closing a partly loaded group hides cards without configuring absent outputs"	24	0	FALSE	FALSE	0	24	0.0419999999999998
+"test-isoform-collapse-pending.R"	"closing before any footer is configured still sends the hide operation"	2	0	FALSE	FALSE	0	2	0.00200000000000067
+"test-isoform-progressive-render.R"	"isoform expansion reveals one scientifically complete batch at a time"	21	0	FALSE	FALSE	0	21	0.172000000000001
+"test-isoform-progressive-render.R"	"real alternative transcripts render before canonical copies"	3	0	FALSE	FALSE	0	3	0.0380000000000003
+"test-isoform-progressive-render.R"	"collapsing an isoform group cancels later batches"	6	0	FALSE	FALSE	0	6	0.097999999999999
+"test-isoform-progressive-render.R"	"canonical footer rerenders preserve the expanded transcript state"	5	0	FALSE	FALSE	0	5	0.0420000000000016
+"test-keyed-reactive-map.R"	"key reads invalidate only for their own content, including absent entries"	12	0	FALSE	FALSE	0	12	0.0440000000000005
+"test-keyed-reactive-map.R"	"nested content, copy-on-write and panel isolation are preserved"	6	0	FALSE	FALSE	0	6	0.0140000000000011
+"test-native-launcher-root-contract.R"	"run-native.sh exports an absolute APP_DIR to the R child process"	6	0	FALSE	FALSE	0	6	0.493
+"test-native-launcher-root-contract.R"	"native relative registry entries resolve against exported APP_DIR with cache hits"	9	0	FALSE	FALSE	0	9	0.103999999999999
+"test-native-twobit-reader.R"	"native 2bit reader preserves bases, N blocks, masks and coordinate slicing"	7	0	FALSE	FALSE	0	7	0.0700000000000003
+"test-native-twobit-reader.R"	"public 2bit extraction uses the native reader without rtracklayer"	2	0	FALSE	FALSE	0	2	0.0559999999999992
+"test-ncbi-cache.R"	"NCBI cache lookup matches accession punctuation variants"	4	0	FALSE	FALSE	0	4	0.00999999999999979
+"test-ncbi-cache.R"	"NCBI cache validation rejects incomplete entries"	2	0	FALSE	FALSE	0	2	0.00200000000000067
+"test-ncbi-cache.R"	"NCBI LRU eviction only removes ncbi_download registry rows"	4	0	FALSE	FALSE	0	4	0.0299999999999994
+"test-ncbi-cache.R"	"NCBI usage log records anonymous loads and builds a summary"	12	0	FALSE	FALSE	0	12	0.0460000000000012
+"test-ortho-first-paint-gate.R"	"first-paint gate rejects stale and duplicate releases"	15	0	FALSE	FALSE	0	15	0.0220000000000002
+"test-ortho-first-paint-gate.R"	"a run without expected plots never closes the gate"	7	0	FALSE	FALSE	0	7	0.081999999999999
+"test-ortho-first-paint-gate.R"	"sorted, rescue, and one-result fixtures follow the gate contract"	7	0	FALSE	FALSE	0	7	0.0489999999999995
+"test-ortho-first-paint-gate.R"	"functional gate targets stay separate from full performance telemetry"	5	0	FALSE	FALSE	0	5	0.0380000000000003
+"test-ortho-first-paint-gate.R"	"a single visible result does not enable a gate with no secondary work"	10	0	FALSE	FALSE	0	10	0.0389999999999997
+"test-ortho-first-paint-gate.R"	"automatic expansion waits for paint but manual loading remains direct"	13	0	FALSE	FALSE	0	13	0.0510000000000002
+"test-ortho-first-paint-gate.R"	"deferred external rescue IDs keep the standard card binding path"	7	0	FALSE	FALSE	0	7	0.0470000000000006
+"test-orthologous-local-cache-context.R"	"shared orthologous cache agrees with an uncached context oracle"	39	0	FALSE	FALSE	0	39	0.0879999999999992
+"test-orthologous-transcript-split-reuse.R"	"orthologous transcript splits run once per found result and remain identical"	4	0	FALSE	FALSE	0	4	0.0749999999999993
+"test-orthologous-transcript-split-reuse.R"	"orthologous split prepass preserves empty and error fallbacks"	4	0	FALSE	FALSE	0	4	0.00999999999999979
+"test-orthologous-transcript-split-reuse.R"	"transcript splitting follows indexed multi-level parent relationships"	2	0	FALSE	FALSE	0	2	0.0640000000000001
+"test-orthologous-transcript-split-reuse.R"	"transcript splitting preserves encoded IDs and multiple Parent fields"	10	0	FALSE	FALSE	0	10	0.00700000000000145
+"test-orthologous-transcript-split-reuse.R"	"the orthologous processor reuses successful prepass blocks"	6	0	FALSE	FALSE	0	6	0.0280000000000005
+"test-runtime-cache-env.R"	"runtime library caches use the writable CGV cache mount"	10	0	FALSE	FALSE	0	10	0.00399999999999956
+"test-sequence-cache-invalidation.R"	"bases and composition follow atomic indexed"	7	0	FALSE	FALSE	0	7	2.43
+"test-sequence-cache-invalidation.R"	"bases and composition follow rewrite indexed"	7	0	FALSE	FALSE	0	7	1.167
+"test-sequence-cache-invalidation.R"	"bases and composition follow same-size indexed"	7	0	FALSE	FALSE	0	7	1.179
+"test-sequence-cache-invalidation.R"	"bases and composition follow preserved-mtime indexed"	9	0	FALSE	FALSE	0	9	1.19
+"test-sequence-cache-invalidation.R"	"bases and composition follow atomic fallback"	7	0	FALSE	FALSE	0	7	1.211
+"test-sequence-cache-invalidation.R"	"bases and composition follow rewrite fallback"	7	0	FALSE	FALSE	0	7	1.168
+"test-sequence-cache-invalidation.R"	"bases and composition follow same-size fallback"	7	0	FALSE	FALSE	0	7	1.169
+"test-sequence-cache-invalidation.R"	"bases and composition follow preserved-mtime fallback"	9	0	FALSE	FALSE	0	9	1.196
+"test-sequence-cache-invalidation.R"	"unchanged inputs reuse values and unrelated genomes stay warm"	37	0	FALSE	FALSE	0	37	0.0719999999999992
+"test-sequence-cache-invalidation.R"	"deletion fails closed and recreation observes new bases"	15	0	FALSE	FALSE	0	15	0.0459999999999994
+"test-sequence-cache-invalidation.R"	"header, seqname and resolution follow source and index replacements"	7	0	FALSE	FALSE	0	7	0.0459999999999994
+"test-sequence-cache-invalidation.R"	"composition rejects supplied sequence without matching provenance"	2	0	FALSE	FALSE	0	2	0.0510000000000019
+"test-sequence-cache-invalidation.R"	"repeated replacements retain one bounded generation"	146	0	FALSE	FALSE	0	146	0.311
+"test-sequence-cache-invalidation.R"	"relative paths and retargeted symlinks return current bases"	16	0	FALSE	FALSE	0	16	0.0509999999999984
+"test-sequence-cache-invalidation.R"	"truncated or malformed replacement cannot return old bases"	9	0	FALSE	FALSE	0	9	0.0450000000000017
+"test-sequence-cache-invalidation.R"	"persistent multisession worker follows multiple replacements in one PID"	9	0	FALSE	FALSE	0	9	1.698
+"test-sequence-cache-invalidation.R"	"2bit metadata, offsets and sidecars reject preserved-mtime replacement"	9	0	FALSE	FALSE	0	9	2.832
+"test-sequence-cache-invalidation.R"	"copied sequence memo state is checked against the worker filesystem"	7	0	FALSE	FALSE	0	7	0.0650000000000013
+"test-sequence-cache-invalidation.R"	"changed FASTA layout cannot reuse an old on-disk index"	25	0	FALSE	FALSE	0	25	0.141999999999999
+"test-sequence-cache-invalidation.R"	"a replacement during composition extraction cannot poison the next version"	1	0	FALSE	FALSE	0	1	0.0350000000000001
+"test-sequence-cache-invalidation.R"	"2bit sidecar writes reject seqnames from an older source identity"	1	0	FALSE	FALSE	0	1	0.0410000000000004
+"test-sequence-counts-gc-index.R"	"base counts preserve ambiguity, whitespace and missing values"	10	0	FALSE	FALSE	0	10	0.0159999999999982
+"test-sequence-counts-gc-index.R"	"prefix GC preserves coordinates, canonical denominators and rounding"	8	0	FALSE	FALSE	0	8	0.0180000000000007
+"test-sequence-counts-gc-index.R"	"transcript cache preserves known-base denominator and invalidates by source"	9	0	FALSE	FALSE	0	9	0.0309999999999988
+"test-sequence-counts-gc-index.R"	"sequence fetch reuses the transcript without conflating genomic fallback"	11	0	FALSE	FALSE	0	11	0.0640000000000001
+"test-session-deferred.R"	"ended A cancels queued work and leaves B functional"	5	0	FALSE	FALSE	0	5	0.0189999999999984
+"test-session-deferred.R"	"live callbacks keep their domain, values, and legitimate errors"	5	0	FALSE	FALSE	0	5	0.0159999999999982
+"test-session-deferred.R"	"promise fulfillment and rejection never enter ended session callbacks"	2	0	FALSE	FALSE	0	2	0.199000000000002
+"test-session-deferred.R"	"recursive scheduling and explicit cancellation release pending entries"	7	0	FALSE	FALSE	0	7	0.0350000000000001
+"test-session-deferred.R"	"guarded promise pipe syntax forwards live results and errors"	2	0	FALSE	FALSE	0	2	0.0899999999999999
+"test-session-deferred.R"	"cancelled long-delay callbacks release their captured payloads"	21	0	FALSE	FALSE	0	21	0.637
+"test-session-source-restore.R"	"session restore suppresses intermediate source changes"	3	0	FALSE	FALSE	0	3	0.00300000000000011
+"test-session-source-restore.R"	"source restore guards are independent per workflow"	3	0	FALSE	FALSE	0	3	0.0410000000000004
+"test-session-source-restore.R"	"client acknowledgement releases a source guard with a non-restorable key"	3	0	FALSE	FALSE	0	3	0.00300000000000011
+"test-shared-report-staging.R"	"reproducibility packages stage beside their final destination"	3	0	FALSE	FALSE	0	3	0.00900000000000034
+"test-shared-runtime-cwd-safety.R"	"reproducibility packages keep relative member names without mutating cwd"	11	0	FALSE	FALSE	0	11	0.102
+"test-shared-runtime-cwd-safety.R"	"reproducibility ZIP semantics do not depend on the caller cwd"	2	0	FALSE	FALSE	0	2	0.138000000000002
+"test-shared-runtime-cwd-safety.R"	"reproducibility packaging errors leave the process cwd untouched"	6	0	FALSE	FALSE	0	6	0.0790000000000006
+"test-shared-runtime-cwd-safety.R"	"cgv_zip_directory archives relative members from an explicit working directory"	5	0	FALSE	FALSE	0	5	0.0749999999999993
+"test-shared-runtime-cwd-safety.R"	"ncbi_resolve_cached_path anchors relative paths to the canonical data root"	12	0	FALSE	FALSE	0	12	0.0339999999999989
+"test-shared-runtime-cwd-safety.R"	"caller-cwd-local files cannot alter NCBI resolution when the canonical entry is absent"	6	0	FALSE	FALSE	0	6	0.0300000000000011
+"test-shared-runtime-cwd-safety.R"	"canonical and absolute NCBI paths stay invariant across three caller cwds"	7	0	FALSE	FALSE	0	7	0.0289999999999999
+"test-shared-runtime-cwd-safety.R"	"ncbi_resolve_cached_path never adopts an arbitrary caller cwd when no root is configured"	4	0	FALSE	FALSE	0	4	0.0279999999999987
+"test-shared-runtime-cwd-safety.R"	"ncbi_resolve_cached_path anchors to the startup APP_DIR root when CGV_DATA_ROOT is unset"	4	0	FALSE	FALSE	0	4	0.0280000000000022
+"test-shared-runtime-cwd-safety.R"	"request-time shared runtime does not call setwd or getwd"	7	0	FALSE	FALSE	0	7	0.0560000000000009
+"test-shared-runtime-cwd-safety.R"	"one session's packaging leaves another session's path resolution untouched"	7	0	FALSE	FALSE	0	7	0.0779999999999994
