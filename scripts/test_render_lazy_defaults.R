@@ -49,7 +49,7 @@ expect_pattern(
 )
 expect_pattern(
     server_txt,
-    'schedule_isoform_module_batches <- function\\(ids_chr, context, anchor_id = "", toggle_key = ""\\)[\\s\\S]*ceiling\\(seq_along\\(ids_chr\\) / isoformRenderBatchSize\\)[\\s\\S]*later::later',
+    'schedule_isoform_module_batches <- function\\(ids_chr, context, anchor_id = "", toggle_key = ""\\)[\\s\\S]*ceiling\\(seq_along\\(ids_chr\\) / isoformRenderBatchSize\\)[\\s\\S]*session_later',
     "expanded isoform plots are instantiated in delayed batches"
 )
 expect_pattern(
@@ -64,7 +64,7 @@ expect_pattern(
 )
 expect_pattern(
     server_txt,
-    'homoAutoRenderQueued\\(TRUE\\)[\\s\\S]*release_next_batch <- function\\(\\)[\\s\\S]*later::later[\\s\\S]*session\\$onFlushed\\(release_next_batch, once = TRUE\\)',
+    'homoAutoRenderQueued\\(TRUE\\)[\\s\\S]*release_next_batch <- function\\(\\)[\\s\\S]*session_later[\\s\\S]*session\\$onFlushed\\(release_next_batch, once = TRUE\\)',
     "Multi-Gene flushes the current card before scheduling the next registration"
 )
 expect_pattern(

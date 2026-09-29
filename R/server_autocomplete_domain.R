@@ -6,6 +6,10 @@ init_autocomplete_domain <- function(
     warm_annotation_cache_fn = NULL,
     normalize_annotation_key_fn = NULL
 ) {
+    session_deferred <- make_session_deferred(session)
+    session_later <- session_deferred$later
+    session_guard <- session_deferred$guard
+
     quick_scan_tokens <- new.env(parent = emptyenv(), hash = TRUE)
     # Derived, session-local keys: never share uploaded annotation names between
     # sessions. Bound both entry count and bytes, as with the other search caches.
@@ -628,10 +632,10 @@ init_autocomplete_domain <- function(
                 close_quick_gene_scan_state(state)
                 current_idx <<- current_idx + 1L
             }
-            later::later(run_next, delay = delay_val)
+            session_later(run_next, delay = delay_val)
             invisible(TRUE)
         }
-        later::later(run_next, delay = delay_val)
+        session_later(run_next, delay = delay_val)
         invisible(TRUE)
     }
 
@@ -1039,7 +1043,7 @@ init_autocomplete_domain <- function(
             if (length(cached) > 0 && min_shared <= 1L) {
                 publish_current_build_suggestions(reason = sprintf("path_%d", as.integer(length(suggestions_by_path))))
             }
-            later::later(run_next, delay = 0.04)
+            session_later(run_next, delay = 0.04)
             invisible(TRUE)
         }
 
@@ -1079,15 +1083,15 @@ init_autocomplete_domain <- function(
                             promises::future_promise({
                                 # Only the heavy GFF parse runs in the worker thread
                                 build_gff_gene_light_index(local_p)
-                            }, seed = FALSE) %...>% (function(idx) {
+                            }, seed = FALSE) %...>% (session_guard(function(idx) {
                                 # Extract suggestions on the main thread (fast, uses local closure fns)
                                 result <- extract_suggestions_from_index(idx, local_cap)
                                 app_perf_mark(sched_perf, sprintf("async build done n=%d %s", as.integer(length(result %||% character(0))), basename(as.character(local_p %||% ""))), "AUTO_BG")
                                 continue_after_build(result, local_p, remaining)
-                            }) %...!% (function(err) {
+                            })) %...!% (session_guard(function(err) {
                                 app_perf_mark(sched_perf, sprintf("async build error: %s", as.character(err$message %||% "unknown")), "AUTO_BG")
                                 continue_after_build(character(0), local_p, remaining)
-                            })
+                            }))
                         },
                         error = function(e) {
                             # Fallback to synchronous if future_promise fails to launch
@@ -1128,10 +1132,10 @@ init_autocomplete_domain <- function(
                     publish_current_build_suggestions(reason = sprintf("cache_%d", as.integer(length(suggestions_by_path))))
                 }
             }
-            later::later(run_next, delay = 0.04)
+            session_later(run_next, delay = 0.04)
             invisible(TRUE)
         }
-        later::later(run_next, delay = delay_val)
+        session_later(run_next, delay = delay_val)
         invisible(TRUE)
     }
 
