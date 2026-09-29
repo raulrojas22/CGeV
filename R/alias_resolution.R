@@ -10,8 +10,24 @@
 .alias_sqlite_connection_cache <- new.env(parent = emptyenv())
 .alias_sqlite_connection_access <- new.env(parent = emptyenv())
 .alias_sqlite_access_counter <- 0
-.alias_index_mtime_cache <- new.env(parent = emptyenv())
+.alias_index_identity_cache <- new.env(parent = emptyenv())
+.alias_sqlite_connection_identity <- new.env(parent = emptyenv())
 .alias_sqlite_available <- NULL
+
+# One stat per lookup; retain numeric timestamps without string rounding.
+# Missing ctime is deterministic on platforms that do not expose it.
+alias_file_identity <- function(path) {
+    if (!nzchar(path)) return(NULL)
+    info <- file.info(path, extra_cols = FALSE)
+    if (is.na(info$size[[1L]]) || isTRUE(info$isdir[[1L]])) return(NULL)
+    ctime <- if (is.null(info$ctime)) NA_real_ else as.numeric(info$ctime[[1L]])
+    list(
+        path = normalizePath(path, winslash = "/", mustWork = FALSE),
+        size = as.numeric(info$size[[1L]]),
+        mtime = as.numeric(info$mtime[[1L]]),
+        ctime = if (is.na(ctime)) NA_real_ else ctime
+    )
+}
 
 alias_sqlite_is_available <- function() {
     if (!is.null(.alias_sqlite_available)) return(.alias_sqlite_available)
@@ -346,6 +362,9 @@ alias_sqlite_close_connection_key <- function(conn_key) {
     if (exists(key, envir = .alias_sqlite_connection_access, inherits = FALSE)) {
         rm(list = key, envir = .alias_sqlite_connection_access)
     }
+    if (exists(key, envir = .alias_sqlite_connection_identity, inherits = FALSE)) {
+        rm(list = key, envir = .alias_sqlite_connection_identity)
+    }
     if (is.null(con)) return(invisible(FALSE))
 
     if (alias_sqlite_connection_is_valid(con)) {
@@ -372,6 +391,10 @@ close_all_alias_sqlite_connections <- function() {
     stale_access <- ls(.alias_sqlite_connection_access, all.names = TRUE)
     if (length(stale_access) > 0L) {
         rm(list = stale_access, envir = .alias_sqlite_connection_access)
+    }
+    stale_identity <- ls(.alias_sqlite_connection_identity, all.names = TRUE)
+    if (length(stale_identity) > 0L) {
+        rm(list = stale_identity, envir = .alias_sqlite_connection_identity)
     }
     invisible(length(keys))
 }
@@ -435,18 +458,22 @@ load_alias_index_sqlite <- function(organism_id = "", base_dir = ".") {
     if (!nzchar(org)) return(NULL)
 
     conn_key <- .alias_sqlite_conn_key(org, base_dir)
+    sqlite_path <- alias_sqlite_path(org, base_dir = base_dir)
+    identity <- alias_file_identity(sqlite_path)
+    cached_identity <- get0(conn_key, envir = .alias_sqlite_connection_identity, inherits = FALSE)
     cached_conn <- get0(conn_key, envir = .alias_sqlite_connection_cache, inherits = FALSE, ifnotfound = NULL)
-    if (alias_sqlite_connection_is_valid(cached_conn)) {
+    if (!is.null(identity) && identical(identity, cached_identity) &&
+        alias_sqlite_connection_is_valid(cached_conn)) {
         alias_sqlite_touch_connection(conn_key)
         prune_alias_sqlite_connections(keep_key = conn_key)
         return(cached_conn)
     }
-    if (!is.null(cached_conn) || exists(conn_key, envir = .alias_sqlite_connection_access, inherits = FALSE)) {
+    if (!is.null(cached_conn) || !is.null(cached_identity) ||
+        exists(conn_key, envir = .alias_sqlite_connection_access, inherits = FALSE)) {
         alias_sqlite_close_connection_key(conn_key)
     }
 
-    sqlite_path <- alias_sqlite_path(org, base_dir = base_dir)
-    if (!nzchar(sqlite_path) || !file.exists(sqlite_path)) return(NULL)
+    if (is.null(identity)) return(NULL)
 
     con <- tryCatch(
         DBI::dbConnect(RSQLite::SQLite(), sqlite_path, flags = RSQLite::SQLITE_RO),
@@ -457,6 +484,7 @@ load_alias_index_sqlite <- function(organism_id = "", base_dir = ".") {
     configure_alias_sqlite_read_connection(con)
 
     assign(conn_key, con, envir = .alias_sqlite_connection_cache)
+    assign(conn_key, identity, envir = .alias_sqlite_connection_identity)
     alias_sqlite_touch_connection(conn_key)
     # Repository callers consume the returned handle synchronously within the
     # current R event-loop turn. Do not retain it in callbacks or reactive state.
@@ -479,28 +507,22 @@ load_alias_index <- function(organism_id = "", annotation_path = "", organism_na
 
     # ── Legacy TSV path (kept for backward compatibility) ──
     disk_path <- alias_index_path(org, base_dir = base_dir)
-    disk_mtime <- if (nzchar(disk_path) && file.exists(disk_path)) {
-        cached_mtime <- get0(disk_path, envir = .alias_index_mtime_cache, inherits = FALSE, ifnotfound = NULL)
-        if (is.null(cached_mtime)) {
-            cached_mtime <- as.numeric(file.info(disk_path)$mtime[1])
-            assign(disk_path, cached_mtime, envir = .alias_index_mtime_cache)
-        }
-        cached_mtime
-    } else {
-        "no_disk"
-    }
+    identity <- alias_file_identity(disk_path)
     cache_key <- paste(
         "alias-index-v1",
         org,
         normalizePath(ann, winslash = "/", mustWork = FALSE),
-        disk_mtime,
+        normalizePath(disk_path, winslash = "/", mustWork = FALSE),
         sep = "||"
     )
     cached <- get0(cache_key, envir = .alias_index_memory_cache, inherits = FALSE, ifnotfound = NULL)
-    if (!is.null(cached)) return(cached)
+    cached_identity <- get0(cache_key, envir = .alias_index_identity_cache, inherits = FALSE)
+    if (!is.null(cached) && identical(identity, cached_identity)) return(cached)
+    # Replace the parsed value at the same key; do not retain obsolete versions.
+    if (!is.null(cached)) rm(list = cache_key, envir = .alias_index_memory_cache)
 
     out <- NULL
-    if (nzchar(disk_path) && file.exists(disk_path)) {
+    if (!is.null(identity)) {
         out <- tryCatch({
             if (requireNamespace("vroom", quietly = TRUE)) {
                 as.data.frame(vroom::vroom(disk_path, delim = "\t", show_col_types = FALSE, progress = FALSE))
@@ -519,8 +541,9 @@ load_alias_index <- function(organism_id = "", annotation_path = "", organism_na
         )
     }
     out <- normalize_alias_index_df(out)
-    assign(cache_key, out, envir = .alias_index_memory_cache)
     attr(out, "index_backend") <- "dataframe"
+    assign(cache_key, out, envir = .alias_index_memory_cache)
+    assign(cache_key, identity, envir = .alias_index_identity_cache)
     out
 }
 
