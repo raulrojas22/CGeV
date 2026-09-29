@@ -434,18 +434,23 @@ ncbi_build_usage_summary <- function(write_file = TRUE) {
 ncbi_resolve_cached_path <- function(path) {
     p <- trimws(as.character(path %||% ""))
     if (!nzchar(p) || is.na(p)) return("")
-    if (grepl("^(/|~)", p)) return(path.expand(p))
-    p_norm <- sub("^\\./", "", p)
-    root <- if (exists("get_cgv_data_root", mode = "function")) {
-        get_cgv_data_root(".")
-    } else {
-        "."
+    if (grepl("^(/|~)", p) ||
+        grepl("^[A-Za-z]:[/\\\\]", p) ||
+        startsWith(p, "\\\\")) {
+        return(path.expand(p))
     }
-    rooted <- file.path(root, p_norm)
-    if (file.exists(rooted)) return(rooted)
-    if (file.exists(p)) return(p)
-    if (file.exists(p_norm)) return(p_norm)
-    rooted
+    p_norm <- sub("^\\./", "", p)
+    configured_root <- trimws(as.character(Sys.getenv("CGV_DATA_ROOT", "")))
+    if (!nzchar(configured_root)) {
+        configured_root <- trimws(as.character(Sys.getenv("APP_DIR", "")))
+    }
+    if (!nzchar(configured_root)) return("")
+    root <- if (exists("get_cgv_data_root", mode = "function")) {
+        get_cgv_data_root(configured_root)
+    } else {
+        normalizePath(configured_root, winslash = "/", mustWork = FALSE)
+    }
+    file.path(root, p_norm)
 }
 
 ncbi_validate_cache_entry <- function(entry) {
