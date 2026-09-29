@@ -146,10 +146,10 @@ get_girafe_plot_cache_max_entries <- function() {
 normalize_girafe_plot_signature <- function(plot_signature = NULL, fallback_id = NULL) {
     sig <- trimws(as.character(plot_signature %||% ""))
     sig <- sig[!is.na(sig) & nzchar(sig)]
-    if (length(sig) > 0L) {
+    if (length(sig) > 0L && !startsWith(sig[1], "plot_id:")) {
         return(sig[1])
     }
-    paste0("plot_id:", as.character(fallback_id %||% ""))
+    "" # Session-local plot IDs cannot identify a shared final widget.
 }
 
 make_girafe_plot_cache_key <- function(plot_context, plot_signature = NULL, fallback_id = NULL,
@@ -157,21 +157,34 @@ make_girafe_plot_cache_key <- function(plot_context, plot_signature = NULL, fall
                                        theme_mode = "light", is_colorblind_mode = FALSE,
                                        seq_len_key = 0L, has_neighbor_context = FALSE,
                                        compact_feature_interactivity = NA,
-                                       orientation_mode = "genomic") {
-    max_len_txt <- format(max_gene_length_key %||% 0, scientific = FALSE, trim = TRUE)
-    paste(
-        as.character(plot_context %||% "plot"),
-        normalize_girafe_plot_signature(plot_signature, fallback_id),
-        max_len_txt,
-        as.character(visual_mode %||% "compact"),
-        as.character(theme_mode %||% "light"),
-        as.character(isTRUE(is_colorblind_mode)),
-        as.character(seq_len_key %||% 0L),
-        as.character(isTRUE(has_neighbor_context)),
-        as.character(compact_feature_interactivity),
-        normalize_gene_plot_orientation_mode(orientation_mode),
-        sep = "|"
-    )
+                                       orientation_mode = "genomic", render_inputs = list()) {
+    signature <- normalize_girafe_plot_signature(plot_signature)
+    if (!nzchar(signature)) return("")
+    # File metadata is serialized as numeric doubles, preserving subsecond mtime.
+    # Unstatable specified inputs cannot safely participate in the shared cache.
+    files <- lapply(c("annotation_file_path", "genome_fasta_path", "report_path"), function(field) {
+        path <- as.character(render_inputs[[field]] %||% "")
+        if (length(path) != 1L || is.na(path)) return(NULL)
+        if (!nzchar(path)) return(list(path = ""))
+        info <- file.info(path)
+        if (is.na(info$size) || is.na(info$mtime) || isTRUE(info$isdir)) return(NULL)
+        list(path = normalizePath(path, winslash = "/", mustWork = TRUE),
+             size = as.numeric(info$size), mtime = as.numeric(info$mtime))
+    })
+    if (any(vapply(files, is.null, logical(1)))) return("")
+    # Hash structured values: delimiters in labels/signatures cannot collide.
+    # render_inputs is the exact deterministic argument list sent to the renderer,
+    # including display text and plot_id embedded in interactive SVG payloads.
+    paste0(digest::digest(list(
+        schema = "girafe-final-v2", plot_context = plot_context,
+        signature = signature, max_gene_length = max_gene_length_key,
+        visual_mode = visual_mode, theme_mode = theme_mode,
+        colorblind = isTRUE(is_colorblind_mode), seq_len = seq_len_key,
+        neighbor = isTRUE(has_neighbor_context),
+        compact_features = compact_feature_interactivity,
+        orientation = normalize_gene_plot_orientation_mode(orientation_mode),
+        files = files, render_inputs = render_inputs
+    ), algo = "sha256"), "|", normalize_gene_plot_orientation_mode(orientation_mode))
 }
 
 normalize_gene_plot_orientation_mode <- function(value = "genomic") {
@@ -3472,6 +3485,35 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     if (isTRUE(defer_feature_gc)) gc_span_len_key else "eager",
                     sep = ":gc="
                 )
+                span_for_plot <- genomic_span_seq()
+                genome_for_plot <- if (isTRUE(defer_feature_gc) && !nzchar(trimws(as.character(span_for_plot %||% "")))) {
+                    ""
+                } else {
+                    genome_fasta_path
+                }
+                render_inputs <- list(
+                    df = df, df_gene = df_gene, df_transcript = df_transcript,
+                    current_transcript_length = current_transcript_length, length_difference = length_difference,
+                    composicion_secuencia = composicion_secuencia, gene_length_label = gene_length_label,
+                    transcript_length_label = transcript_length_label,
+                    neighbor_context = current_neighbor_context,
+                    visual_mode = this_visual_mode,
+                    width_svg = width_svg,
+                    height_svg = height_svg,
+                    organism_label = organism_name,
+                    annotation_file_path = annotation_file_path,
+                    use_report_map = use_report_map,
+                    report_path = report_path,
+                    plot_id = as.character(plotIndex),
+                    plot_context = "homologous",
+                    genome_fasta_path = genome_for_plot,
+                    is_dark_theme = is_dark_theme,
+                    is_colorblind_mode = is_colorblind_mode,
+                    gene_display_name = gene_name,
+                    precomputed_genomic_span = span_for_plot,
+                    model_cache_key = model_data_key,
+                    orientation_mode = this_orientation_mode
+                )
                 cache_key <- make_girafe_plot_cache_key(
                     "homologous",
                     plot_signature = plot_signature,
@@ -3483,8 +3525,11 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     seq_len_key = seq_len_key,
                     has_neighbor_context = has_neighbor_context,
                     compact_feature_interactivity = compact_feature_key,
-                    orientation_mode = this_orientation_mode
+                    orientation_mode = this_orientation_mode,
+                    render_inputs = render_inputs
                 )
+
+                cache_enabled <- cache_enabled && nzchar(cache_key)
 
                 if (cache_enabled) {
                     if (identical(cached_plot_key(), cache_key)) {
@@ -3515,34 +3560,7 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                 create_t0 <- app_perf_now()
                 app_perf_mark_ms(module_perf, "render_prepare_ms", app_perf_elapsed_ms(render_prepare_t0), "HOMO_MOD")
                 app_perf_mark(module_perf, "create_gene_plot start", "HOMO_MOD")
-                span_for_plot <- genomic_span_seq()
-                genome_for_plot <- if (isTRUE(defer_feature_gc) && !nzchar(trimws(as.character(span_for_plot %||% "")))) {
-                    ""
-                } else {
-                    genome_fasta_path
-                }
-                plot_obj <- create_gene_plot(
-                    df, df_gene, df_transcript, current_transcript_length, length_difference,
-                    composicion_secuencia, gene_length_label, transcript_length_label,
-                    neighbor_context = current_neighbor_context,
-                    visual_mode = this_visual_mode,
-                    width_svg = width_svg,
-                    height_svg = height_svg,
-                    organism_label = organism_name,
-                    annotation_file_path = annotation_file_path,
-                    use_report_map = use_report_map,
-                    report_path = report_path,
-                    plot_id = as.character(plotIndex),
-                    plot_context = "homologous",
-                    genome_fasta_path = genome_for_plot,
-                    is_dark_theme = is_dark_theme,
-                    is_colorblind_mode = is_colorblind_mode,
-                    gene_display_name = gene_name,
-                    precomputed_genomic_span = span_for_plot,
-                    model_cache_key = model_data_key,
-                    orientation_mode = this_orientation_mode,
-                    caller_started_at = create_t0
-                )
+                plot_obj <- do.call(create_gene_plot, c(render_inputs, list(caller_started_at = create_t0)))
                 if (gc_timing_enabled) {
                     gc_after <- sum(gc.time())
                     app_perf_mark_ms(
@@ -4314,6 +4332,35 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     if (isTRUE(defer_feature_gc)) gc_span_len_key else "eager",
                     sep = ":gc="
                 )
+                span_for_plot <- genomic_span_seq()
+                genome_for_plot <- if (isTRUE(defer_feature_gc) && !nzchar(trimws(as.character(span_for_plot %||% "")))) {
+                    ""
+                } else {
+                    genome_fasta_path
+                }
+                render_inputs <- list(
+                    df = df, df_gene = df_gene, df_transcript = df_transcript,
+                    current_transcript_length = current_transcript_length, length_difference = length_difference,
+                    composicion_secuencia = composicion_secuencia, gene_length_label = gene_length_label,
+                    transcript_length_label = transcript_length_label,
+                    neighbor_context = current_neighbor_context,
+                    visual_mode = this_visual_mode,
+                    width_svg = width_svg,
+                    height_svg = height_svg,
+                    organism_label = organism_name,
+                    annotation_file_path = annotation_file_path,
+                    use_report_map = use_report_map,
+                    report_path = report_path,
+                    plot_id = as.character(plotIndex),
+                    plot_context = "orthologous",
+                    genome_fasta_path = genome_for_plot,
+                    is_dark_theme = is_dark_theme,
+                    is_colorblind_mode = is_colorblind_mode,
+                    gene_display_name = gene_name,
+                    precomputed_genomic_span = span_for_plot,
+                    model_cache_key = model_data_key,
+                    orientation_mode = this_orientation_mode
+                )
                 cache_key <- make_girafe_plot_cache_key(
                     "orthologous",
                     plot_signature = plot_signature,
@@ -4325,8 +4372,11 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     seq_len_key = seq_len_key,
                     has_neighbor_context = has_neighbor_context,
                     compact_feature_interactivity = compact_feature_key,
-                    orientation_mode = this_orientation_mode
+                    orientation_mode = this_orientation_mode,
+                    render_inputs = render_inputs
                 )
+
+                cache_enabled <- cache_enabled && nzchar(cache_key)
 
                 if (cache_enabled) {
                     if (identical(cached_plot_key(), cache_key)) {
@@ -4357,34 +4407,7 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                 create_t0 <- app_perf_now()
                 app_perf_mark_ms(module_perf, "render_prepare_ms", app_perf_elapsed_ms(render_prepare_t0), "ORTHO_MOD")
                 app_perf_mark(module_perf, "create_gene_plot start", "ORTHO_MOD")
-                span_for_plot <- genomic_span_seq()
-                genome_for_plot <- if (isTRUE(defer_feature_gc) && !nzchar(trimws(as.character(span_for_plot %||% "")))) {
-                    ""
-                } else {
-                    genome_fasta_path
-                }
-                plot_obj <- create_gene_plot(
-                    df, df_gene, df_transcript, current_transcript_length, length_difference,
-                    composicion_secuencia, gene_length_label, transcript_length_label,
-                    neighbor_context = current_neighbor_context,
-                    visual_mode = this_visual_mode,
-                    width_svg = width_svg,
-                    height_svg = height_svg,
-                    organism_label = organism_name,
-                    annotation_file_path = annotation_file_path,
-                    use_report_map = use_report_map,
-                    report_path = report_path,
-                    plot_id = as.character(plotIndex),
-                    plot_context = "orthologous",
-                    genome_fasta_path = genome_for_plot,
-                    is_dark_theme = is_dark_theme,
-                    is_colorblind_mode = is_colorblind_mode,
-                    gene_display_name = gene_name,
-                    precomputed_genomic_span = span_for_plot,
-                    model_cache_key = model_data_key,
-                    orientation_mode = this_orientation_mode,
-                    caller_started_at = create_t0
-                )
+                plot_obj <- do.call(create_gene_plot, c(render_inputs, list(caller_started_at = create_t0)))
                 if (gc_timing_enabled) {
                     gc_after <- sum(gc.time())
                     app_perf_mark_ms(
