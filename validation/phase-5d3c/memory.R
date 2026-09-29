@@ -1,0 +1,17 @@
+source('R/utils.R')
+requireNamespace <- function(package,...) if(package=='Rsamtools') FALSE else base::requireNamespace(package,...)
+p<-tempfile(fileext='.fa');on.exit(unlink(p));a<-strrep('AT',524288);b<-strrep('CG',524288)
+ex<-data.frame(start=c(1L,524289L),end=c(262144L,786432L))
+caches<-c('.seq_extract_cache','.spliced_seq_cache','.fasta_fallback_seq_cache','.fasta_header_cache','.fasta_seqnames_cache','.fasta_resolved_seqname_cache','.transcript_composition_cache','.sequence_file_state')
+for(i in 1:12){
+ bases<-if(i%%2L)a else b;q<-paste0(p,'.next');writeLines(c('>chr1',bases),q);stopifnot(file.rename(q,p))
+ stopifnot(identical(extract_sequence_from_fasta(p,'chr1',1,1048576),bases))
+ expected<-paste0(substr(bases,1,262144),substr(bases,524289,786432))
+ stopifnot(identical(extract_spliced_exon_sequence(p,'chr1',ex),expected))
+ comp<-get_transcript_composition_cached(p,'chr1',ex)
+ stopifnot(identical(comp$counts,if(i%%2L)c(A=262144L,T=262144L,C=0L,G=0L) else c(A=0L,T=0L,C=262144L,G=262144L)))
+ counts<-vapply(caches,function(n)length(cache_env_entry_keys(get(n))),integer(1))
+ bytes<-vapply(caches,function(n)sum(vapply(as.list(get(n),all.names=TRUE),function(x)as.numeric(object.size(x)),numeric(1))),numeric(1))
+ cat(i,paste(counts,collapse=','),paste(bytes,collapse=','),'total',sum(bytes),'\n')
+}
+cat('order:',paste(caches,collapse=','),'\n');unlink(p)

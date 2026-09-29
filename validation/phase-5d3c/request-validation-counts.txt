@@ -1,0 +1,4 @@
+TP53-like sequence_file_identity=30 sequence_cache_validate=15 sequence_cache_finish=15 get_cached_fafile=1 file.info=30
+full-span memo present: FALSE
+BRCA1-like sequence_file_identity=54 sequence_cache_validate=27 sequence_cache_finish=27 get_cached_fafile=1 file.info=54
+full-span memo present: FALSE

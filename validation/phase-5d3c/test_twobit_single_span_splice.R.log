@@ -1,0 +1,3 @@
+Error in normalizePath("faToTwoBit", winslash = "/", mustWork = TRUE) :
+  path[1]="faToTwoBit": No such file or directory
+Execution halted

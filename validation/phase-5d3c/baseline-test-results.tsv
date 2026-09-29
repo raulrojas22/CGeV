@@ -1,0 +1,22 @@
+"file"	"test"	"nb"	"failed"	"skipped"	"error"	"warning"	"passed"	"real"
+"test-sequence-cache-invalidation.R"	"bases and composition follow atomic indexed"	7	4	FALSE	FALSE	0	3	2.16
+"test-sequence-cache-invalidation.R"	"bases and composition follow rewrite indexed"	7	4	FALSE	FALSE	0	3	1.181
+"test-sequence-cache-invalidation.R"	"bases and composition follow same-size indexed"	7	4	FALSE	FALSE	0	3	1.183
+"test-sequence-cache-invalidation.R"	"bases and composition follow preserved-mtime indexed"	9	4	FALSE	FALSE	0	5	1.194
+"test-sequence-cache-invalidation.R"	"bases and composition follow atomic fallback"	7	5	FALSE	FALSE	0	2	1.214
+"test-sequence-cache-invalidation.R"	"bases and composition follow rewrite fallback"	7	5	FALSE	FALSE	0	2	1.174
+"test-sequence-cache-invalidation.R"	"bases and composition follow same-size fallback"	7	5	FALSE	FALSE	0	2	1.179
+"test-sequence-cache-invalidation.R"	"bases and composition follow preserved-mtime fallback"	9	5	FALSE	FALSE	0	4	1.182
+"test-sequence-cache-invalidation.R"	"unchanged inputs reuse values and unrelated genomes stay warm"	37	5	FALSE	FALSE	0	32	0.107999999999999
+"test-sequence-cache-invalidation.R"	"deletion fails closed and recreation observes new bases"	15	5	FALSE	FALSE	0	10	0.0470000000000006
+"test-sequence-cache-invalidation.R"	"header, seqname and resolution follow source and index replacements"	7	5	FALSE	FALSE	0	2	0.0470000000000006
+"test-sequence-cache-invalidation.R"	"composition rejects supplied sequence without matching provenance"	1	1	FALSE	FALSE	0	0	0.0399999999999991
+"test-sequence-cache-invalidation.R"	"repeated replacements retain one bounded generation"	146	62	FALSE	FALSE	0	84	0.290000000000001
+"test-sequence-cache-invalidation.R"	"relative paths and retargeted symlinks return current bases"	16	0	FALSE	FALSE	0	16	0.0449999999999999
+"test-sequence-cache-invalidation.R"	"truncated or malformed replacement cannot return old bases"	9	3	FALSE	FALSE	0	6	0.0340000000000007
+"test-sequence-cache-invalidation.R"	"persistent multisession worker follows multiple replacements in one PID"	1	0	TRUE	FALSE	0	0	0.000999999999999446
+"test-sequence-cache-invalidation.R"	"2bit metadata, offsets and sidecars reject preserved-mtime replacement"	9	3	FALSE	FALSE	0	6	2.93
+"test-sequence-cache-invalidation.R"	"copied sequence memo state is checked against the worker filesystem"	7	1	FALSE	FALSE	0	6	0.059000000000001
+"test-sequence-cache-invalidation.R"	"changed FASTA layout cannot reuse an old on-disk index"	14	7	FALSE	TRUE	0	7	0.115
+"test-sequence-cache-invalidation.R"	"a replacement during composition extraction cannot poison the next version"	1	1	FALSE	FALSE	0	0	0.0299999999999994
+"test-sequence-cache-invalidation.R"	"2bit sidecar writes reject seqnames from an older source identity"	1	0	TRUE	FALSE	0	0	0.0250000000000004

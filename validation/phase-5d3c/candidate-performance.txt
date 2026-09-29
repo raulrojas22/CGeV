@@ -1,0 +1,29 @@
+[1] "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC"
+$composition
+[1] "Sequence Composition: A = 26.00%\tT = 24.00%  C = 26.00%  G = 24.00%"
+
+$length
+[1] 150
+
+$known_total
+[1] 150
+
+$counts
+ A  T  C  G
+39 36 39 36
+
+$sequence_optional
+NULL
+
+normalizePath 12.5 us/call
+file.info 71 us/call
+lookup 6 us/call
+interval-hit 227 us/call
+splice-hit 661 us/call
+composition-hit 703 us/call
+identity 98 us/call
+identity-comparison 0 us/call
+identity-guard 99 us/call
+file.info-three-paths 69 us/call
+identity-construction-only 3 us/call
+identity-independent-comparison 0 us/call

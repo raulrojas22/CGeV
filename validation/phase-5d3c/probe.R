@@ -1,0 +1,17 @@
+source('R/utils.R')
+a <- 'AAAATTTTAAAATTTT'; b <- 'CCCCGGGGCCCCGGGG'
+ex <- data.frame(start=c(1,9),end=c(4,12))
+p <- tempfile(fileext='.fa')
+put <- function(s, atomic=FALSE) { q <- if(atomic) tempfile() else p; writeLines(c('>chr1',s),q); if(atomic) stopifnot(file.rename(q,p)) }
+put(a)
+cat('A:',extract_sequence_from_fasta(p,'chr1',1,16),extract_spliced_exon_sequence(p,'chr1',ex),'\n')
+print(get_transcript_composition_cached(p,'chr1',ex)$counts)
+Sys.sleep(1.1); put(b,TRUE)
+cat('B exact:',extract_sequence_from_fasta(p,'chr1',1,16),'expected',b,'\n')
+cat('B unseen:',extract_sequence_from_fasta(p,'chr1',5,8),'expected GGGG\n')
+cat('B splice:',extract_spliced_exon_sequence(p,'chr1',ex),'expected CCCCCCCC\n')
+print(get_transcript_composition_cached(p,'chr1',ex)$counts)
+unlink(p)
+cat('deleted splice:',extract_spliced_exon_sequence(p,'chr1',ex),'\n')
+put(b); cat('recreated:',extract_sequence_from_fasta(p,'chr1',1,16),'\n')
+unlink(c(p,paste0(p,'.fai')))

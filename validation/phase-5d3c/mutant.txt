@@ -1,0 +1,123 @@
+sequence-cache-invalidation: ..1234...5678...9abc.....defg..hijkl..mnopq..rstuv....wxyzA.........................BCDEF.................GHIJK...LMNOPQ.......RSTUV.......WXYZF.......FFFFF.......FFFFF.......FFFFF.......FFFFF.......FFFFF.......FFFFF.......FFFFF.......FFFFF.......FFFFF.......FFFFF...
+Sequence cache cycles: counts= 3,2,1,1,1,1,1  retained bytes= 12808..12808
+......................FFFS....F.F........F......FFFFF.FFEF.
+
+══ Skipped ═════════════════════════════════════════════════════════════════════
+1. persistent multisession worker follows multiple replacements in one PID ('test-sequence-cache-invalidation.R:145:5') - Reason: requires local worker sockets
+
+══ Failed ══════════════════════════════════════════════════════════════════════
+── 1. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `e$extract_sequence_from_fasta(p, "chr1", 5L, 8L)` to be identical to `substr(bases, 5L, 8L)`.
+Differences:
+1/1 mismatches
+x[1]: "TTTT"
+y[1]: "GGGG"
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(...) at test-sequence-cache-invalidation.R:30:5
+
+── 2. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `e$extract_spliced_exon_sequence(p, "chr1", seq_exons)` to be identical to `splice`.
+Differences:
+1/1 mismatches
+x[1]: "AAAAAAAA"
+y[1]: "CCCCCCCC"
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(...) at test-sequence-cache-invalidation.R:32:5
+
+── 3. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `e$extract_spliced_exon_sequence(p, "chr1", seq_exons, "-")` to be identical to `reverse`.
+Differences:
+1/1 mismatches
+x[1]: "TTTTTTTT"
+y[1]: "GGGGGGGG"
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(...) at test-sequence-cache-invalidation.R:34:5
+
+── 4. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `comp$counts` to be identical to `expected`.
+Differences:
+2/4 mismatches (average diff: 8)
+[1] 8 - 0 ==  8
+[3] 0 - 8 == -8
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(comp$counts, expected) at test-sequence-cache-invalidation.R:37:5
+
+── 5. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `e$extract_sequence_from_fasta(p, "chr1", 5L, 8L)` to be identical to `substr(bases, 5L, 8L)`.
+Differences:
+1/1 mismatches
+x[1]: "TTTT"
+y[1]: "GGGG"
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(...) at test-sequence-cache-invalidation.R:30:5
+
+── 6. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `e$extract_spliced_exon_sequence(p, "chr1", seq_exons)` to be identical to `splice`.
+Differences:
+1/1 mismatches
+x[1]: "AAAAAAAA"
+y[1]: "CCCCCCCC"
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(...) at test-sequence-cache-invalidation.R:32:5
+
+── 7. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `e$extract_spliced_exon_sequence(p, "chr1", seq_exons, "-")` to be identical to `reverse`.
+Differences:
+1/1 mismatches
+x[1]: "TTTTTTTT"
+y[1]: "GGGGGGGG"
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(...) at test-sequence-cache-invalidation.R:34:5
+
+── 8. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `comp$counts` to be identical to `expected`.
+Differences:
+2/4 mismatches (average diff: 8)
+[1] 8 - 0 ==  8
+[3] 0 - 8 == -8
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(comp$counts, expected) at test-sequence-cache-invalidation.R:37:5
+
+── 9. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and composition
+Expected `e$extract_sequence_from_fasta(p, "chr1", 5L, 8L)` to be identical to `substr(bases, 5L, 8L)`.
+Differences:
+1/1 mismatches
+x[1]: "TTTT"
+y[1]: "GGGG"
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(...) at test-sequence-cache-invalidation.R:30:5
+
+── 10. Failure ('test-sequence-cache-invalidation.R:56:9'): bases and compositio
+Expected `e$extract_spliced_exon_sequence(p, "chr1", seq_exons)` to be identical to `splice`.
+Differences:
+1/1 mismatches
+x[1]: "AAAAAAAA"
+y[1]: "CCCCCCCC"
+Backtrace:
+    ▆
+ 1. └─seq_oracle(e, p, seq_b) at test-sequence-cache-invalidation.R:56:9
+ 2.   └─testthat::expect_identical(...) at test-sequence-cache-invalidation.R:32:5
+  ... and 117 more
+
+
+Maximum number of 10 failures reached, some test results may be missing.
+
+══ DONE ════════════════════════════════════════════════════════════════════════
