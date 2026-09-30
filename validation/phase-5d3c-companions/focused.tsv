@@ -1,0 +1,13 @@
+"file"	"test"	"passed"	"failed"	"error"	"warning"	"skipped"
+"test-fasta-companion-invalidation.R"	"compressed companion replacement gzi-only"	13	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement fai-only"	13	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement neither"	13	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement both"	13	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement K"	20	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement same-size"	9	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement preserved-mtime"	14	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"companion ages and changes are independent without optional dependencies"	8	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compatibility result is bounded per identity and fails closed"	4	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"fresh-metadata stale gzi and later-record fai mismatch fail closed"	14	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"failed indexed handle attempt proceeds to safe streaming"	6	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"same persistent worker rejects asymmetric and copied indexes"	13	0	FALSE	0	FALSE

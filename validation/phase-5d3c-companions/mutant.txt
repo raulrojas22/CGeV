@@ -1,0 +1,129 @@
+fasta-companion-invalidation: ...................1[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+.[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+.....................................23456789abcdef.........................gh.ijklm.n[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+.[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+.....opqrstuv......S
+
+══ Skipped ═════════════════════════════════════════════════════════════════════
+1. same persistent worker rejects asymmetric and copied indexes ('test-fasta-companion-invalidation.R:122:5') - Reason: requires local worker sockets
+
+══ Failed ══════════════════════════════════════════════════════════════════════
+── 1. Failure ('test-fasta-companion-invalidation.R:47:9'): compressed companion
+Expected `e$sequence_fasta_index_usable(normalizePath(p))` to be identical to `mode %in% c("both", "same-size")`.
+Differences:
+1 element mismatch
+
+── 2. Failure ('test-fasta-companion-invalidation.R:47:9'): compressed companion
+Expected `e$sequence_fasta_index_usable(normalizePath(p))` to be identical to `mode %in% c("both", "same-size")`.
+Differences:
+1 element mismatch
+
+── 3. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_sequence_from_fasta(p, "chr1", 70001, 70028)` to be identical to `substr(b, 70001, 70028)`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTATATTGGGCGCCAATAG"
+y[1]: "TTATCATGACAACAAGAGCCCGCATATA"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:25:9
+
+── 4. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_spliced_exon_sequence(p, "chr1", ex)` to be identical to `want`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTCGCCCTCCA"
+y[1]: "TTATCATGACCTTAGAGGAT"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:26:9
+
+── 5. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$get_transcript_composition_cached(p, "chr1", ex)$counts` to be identical to `counts`.
+Differences:
+4/4 mismatches (average diff: 3)
+[1] 5 - 6 == -1
+[2] 3 - 7 == -4
+[3] 9 - 3 ==  6
+[4] 3 - 4 == -1
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:28:9
+
+── 6. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_sequence_from_fasta(p, "chr1", 70001, 70028)` to be identical to `substr(b, 70001, 70028)`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTATATTGGGCGCCAATAG"
+y[1]: "TTATCATGACAACAAGAGCCCGCATATA"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:25:9
+
+── 7. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_spliced_exon_sequence(p, "chr1", ex)` to be identical to `want`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTCGCCCTCCA"
+y[1]: "TTATCATGACCTTAGAGGAT"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:26:9
+
+── 8. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$get_transcript_composition_cached(p, "chr1", ex)$counts` to be identical to `counts`.
+Differences:
+4/4 mismatches (average diff: 3)
+[1] 5 - 6 == -1
+[2] 3 - 7 == -4
+[3] 9 - 3 ==  6
+[4] 3 - 4 == -1
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:28:9
+
+── 9. Failure ('test-fasta-companion-invalidation.R:52:47'): compressed companio
+Expected `e$extract_sequence_from_fasta(p, "chr1", 70001, 70028)` to be identical to `substr(b, 70001, 70028)`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTATATTGGGCGCCAATAG"
+y[1]: "TTATCATGACAACAAGAGCCCGCATATA"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(fresh, p, x$b) at test-fasta-companion-invalidation.R:52:47
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:25:9
+
+── 10. Failure ('test-fasta-companion-invalidation.R:52:47'): compressed compani
+Expected `e$extract_spliced_exon_sequence(p, "chr1", ex)` to be identical to `want`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTCGCCCTCCA"
+y[1]: "TTATCATGACCTTAGAGGAT"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(fresh, p, x$b) at test-fasta-companion-invalidation.R:52:47
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:26:9
+  ... and 21 more
+
+
+Maximum number of 10 failures reached, some test results may be missing.
+
+══ DONE ════════════════════════════════════════════════════════════════════════

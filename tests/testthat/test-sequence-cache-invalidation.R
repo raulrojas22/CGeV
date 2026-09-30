@@ -81,19 +81,23 @@ testthat::test_that('deletion fails closed and recreation observes new bases', {
 })
 
 testthat::test_that('header, seqname and resolution follow source and index replacements', {
-    e<-seq_identity_env(TRUE);p<-tempfile();seq_write(p,seq_a,'old')
+    testthat::skip_if_not_installed('Rsamtools')
+    e<-seq_identity_env(FALSE);p<-tempfile();seq_write(p,seq_a,'old')
     on.exit(unlink(c(p,paste0(p,'.fai'))))
-    writeLines('old\t16\t25\t16\t17',paste0(p,'.fai'))
+    Rsamtools::indexFa(p)
     testthat::expect_identical(e$resolve_seqname_in_fasta(p,'1'),'old')
     testthat::expect_identical(e$get_fasta_index_seqnames(p),'old')
     Sys.sleep(0.01);seq_write(p,seq_b,'new')
     testthat::expect_identical(names(e$get_fasta_header_map(p)$seqname_to_header),'new')
     testthat::expect_identical(e$resolve_seqname_in_fasta(p,'1'),'new')
     testthat::expect_identical(e$extract_sequence_from_fasta(p,'1',1,16),seq_b)
-    writeLines('new\t16\t25\t16\t17',paste0(p,'.fai'))
+    unlink(paste0(p,'.fai'));Rsamtools::indexFa(p)
     testthat::expect_identical(e$get_fasta_index_seqnames(p),'new')
     writeLines('indexOnly\t16\t25\t16\t17',paste0(p,'.fai'))
-    testthat::expect_identical(e$get_fasta_index_seqnames(p),'indexOnly')
+    # A replacement index with names/layout absent from the source is unsafe.
+    testthat::expect_identical(e$get_fasta_index_seqnames(p),character(0))
+    testthat::expect_false(e$sequence_fasta_index_usable(normalizePath(p)))
+    testthat::expect_identical(e$extract_sequence_from_fasta(p,'1',1,16),seq_b)
 })
 
 testthat::test_that('composition rejects supplied sequence without matching provenance', {

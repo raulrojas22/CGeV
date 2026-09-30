@@ -1,0 +1,1 @@
+Equal compressed bytes: 48414 ; changed base position: 70001 ; repeated bases/splice/composition assertions: 12; indexed: TRUE

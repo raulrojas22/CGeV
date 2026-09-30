@@ -1,0 +1,111 @@
+fasta-companion-invalidation: ...................1[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+2[E::bgzf_read_block] Invalid BGZF header at offset 20649
+[E::faidx_fetch_seq2] Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)
+3................................456789abcdefgh...............i......
+
+══ Failed ══════════════════════════════════════════════════════════════════════
+── 1. Failure ('test-fasta-companion-invalidation.R:47:9'): compressed companion
+Expected `e$sequence_fasta_index_usable(normalizePath(p))` to be identical to `mode %in% c("both", "same-size", "preserved-mtime")`.
+Differences:
+1 element mismatch
+
+── 2. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_sequence_from_fasta(p, "chr1", 70001, 70028)` to be identical to `substr(b, 70001, 70028)`.
+Differences:
+target is NULL, current is character
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:25:9
+
+── 3. Error ('test-fasta-companion-invalidation.R:48:9'): compressed companion r
+Error in `if (nzchar(span_seq) && nchar(span_seq) >= span_width) {     local_splice_t0 <- app_perf_now()     rel_starts <- as.integer(round(ex$start)) - span_start + 1L     rel_ends <- as.integer(round(ex$end)) - span_start + 1L     keep <- is.finite(rel_starts) & is.finite(rel_ends) & rel_starts >= 1L & rel_ends <= nchar(span_seq) & rel_ends >= rel_starts     if (any(keep)) {         parts_local <- vapply(which(keep), function(i) {             substr(span_seq, rel_starts[i], rel_ends[i])         }, character(1))         parts_local <- parts_local[nzchar(parts_local)]         if (length(parts_local) > 0) {             seq_spliced_local <- paste0(parts_local, collapse = "")             strand_local <- toupper(trimws(as.character(strand %||% "+")))             seq_cache_key <- paste(normalizePath(fasta_path, winslash = "/", mustWork = FALSE), as.character(seqid %||% ""), as.integer(span_start), as.integer(span_end), sep = "::")             cache_env_set(.seq_extract_cache, seq_cache_key, span_seq, max_size = annotation_memory_cache_limits$seq_extract_max_entries, max_bytes = annotation_memory_cache_limits$seq_extract_max_bytes)             if (identical(strand_local, "-"))                  seq_spliced_local <- reverse_complement_dna(seq_spliced_local)             cache_env_set(.spliced_seq_cache, splice_key, seq_spliced_local, max_size = annotation_memory_cache_limits$spliced_seq_max_entries, max_bytes = annotation_memory_cache_limits$spliced_seq_max_bytes)             app_perf_mark(sp_perf, sprintf("single-span done len=%d span=%d", as.integer(nchar(seq_spliced_local)), as.integer(span_width)), "SEQ_SPLICE")             app_perf_mark_ms(sp_perf, "local_splice_ms", app_perf_elapsed_ms(local_splice_t0), "SEQ_SPLICE")             return(seq_spliced_local)         }     } }`: missing value where TRUE/FALSE needed
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   ├─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:26:9
+ 3.   │ └─testthat::quasi_label(enquo(object), label)
+ 4.   │   └─rlang::eval_bare(expr, quo_get_env(quo))
+ 5.   └─e$extract_spliced_exon_sequence(p, "chr1", ex)
+
+── 4. Failure ('test-fasta-companion-invalidation.R:47:9'): compressed companion
+Expected `e$sequence_fasta_index_usable(normalizePath(p))` to be identical to `mode %in% c("both", "same-size", "preserved-mtime")`.
+Differences:
+1 element mismatch
+
+── 5. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_sequence_from_fasta(p, "chr1", 70001, 70028)` to be identical to `substr(b, 70001, 70028)`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTATATTGGGCGCCAATAG"
+y[1]: "TTATCATGACAACAAGAGCCCGCATATA"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:25:9
+
+── 6. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_spliced_exon_sequence(p, "chr1", ex)` to be identical to `want`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTCGCCCTCCA"
+y[1]: "TTATCATGACCTTAGAGGAT"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:26:9
+
+── 7. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$get_transcript_composition_cached(p, "chr1", ex)$counts` to be identical to `counts`.
+Differences:
+4/4 mismatches (average diff: 3)
+[1] 5 - 6 == -1
+[2] 3 - 7 == -4
+[3] 9 - 3 ==  6
+[4] 3 - 4 == -1
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:28:9
+
+── 8. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_sequence_from_fasta(p, "chr1", 70001, 70028)` to be identical to `substr(b, 70001, 70028)`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTATATTGGGCGCCAATAG"
+y[1]: "TTATCATGACAACAAGAGCCCGCATATA"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:25:9
+
+── 9. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companion
+Expected `e$extract_spliced_exon_sequence(p, "chr1", ex)` to be identical to `want`.
+Differences:
+1/1 mismatches
+x[1]: "ACCACGAGATTCGCCCTCCA"
+y[1]: "TTATCATGACCTTAGAGGAT"
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:26:9
+
+── 10. Failure ('test-fasta-companion-invalidation.R:48:9'): compressed companio
+Expected `e$get_transcript_composition_cached(p, "chr1", ex)$counts` to be identical to `counts`.
+Differences:
+4/4 mismatches (average diff: 3)
+[1] 5 - 6 == -1
+[2] 3 - 7 == -4
+[3] 9 - 3 ==  6
+[4] 3 - 4 == -1
+Backtrace:
+    ▆
+ 1. └─companion_oracle(e, p, x$b) at test-fasta-companion-invalidation.R:48:9
+ 2.   └─testthat::expect_identical(...) at test-fasta-companion-invalidation.R:28:9
+  ... and 8 more
+
+
+Maximum number of 10 failures reached, some test results may be missing.
+
+══ DONE ════════════════════════════════════════════════════════════════════════

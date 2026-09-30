@@ -1,0 +1,8 @@
+"file"	"test"	"passed"	"failed"	"error"	"warning"	"skipped"
+"test-fasta-companion-invalidation.R"	"compressed companion replacement gzi-only"	13	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement fai-only"	6	2	TRUE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement neither"	13	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement both"	13	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement K"	6	14	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement same-size"	9	0	FALSE	0	FALSE
+"test-fasta-companion-invalidation.R"	"compressed companion replacement preserved-mtime"	12	1	FALSE	0	FALSE

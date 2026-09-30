@@ -1,0 +1,73 @@
+Loading required package: shiny
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+
+Attaching package: ‘scales’
+
+The following object is masked from ‘package:purrr’:
+
+    discard
+
+
+Attaching package: ‘bslib’
+
+The following object is masked from ‘package:utils’:
+
+    page
+
+
+Attaching package: ‘shinyjs’
+
+The following object is masked from ‘package:shiny’:
+
+    runExample
+
+The following objects are masked from ‘package:methods’:
+
+    removeClass, show
+
+
+Attaching package: ‘shinyWidgets’
+
+The following object is masked from ‘package:shinyjs’:
+
+    alert
+
+
+Attaching package: ‘vroom’
+
+The following object is masked from ‘package:scales’:
+
+    col_factor
+
+
+Attaching package: ‘future’
+
+The following object is masked from ‘package:shinyjs’:
+
+    reset
+
+Rscript (R) version 4.4.3 (2025-02-28)
+[Future] Could not start 1 multisession worker(s): argument is of length zero. Falling back to 1 worker(s).
+The following object is masked _by_ .GlobalEnv:
+
+    versioned_asset_path
+
+The following object is masked from package:purrr:
+
+    %||%
+
+The following object is masked from package:base:
+
+    %||%
+
+PASS: actual Shiny server resolves all 741 explicit library bindings; runtime = compiled
