@@ -1,0 +1,9 @@
+"state"	"scoped"	"operation"	"sequence_file_identity"	"sequence_cache_validate"	"sequence_cache_finish"	"file.info"	"normalizePath"
+"baseline"	FALSE	"TP53-like"	0	0	0	1	16
+"baseline"	FALSE	"BRCA1-like"	0	0	0	1	28
+"parent"	FALSE	"TP53-like"	30	15	15	30	46
+"parent"	FALSE	"BRCA1-like"	54	27	27	54	82
+"R1"	TRUE	"TP53-like"	2	1	1	2	18
+"R1"	TRUE	"BRCA1-like"	2	1	1	2	30
+"R1"	FALSE	"TP53-like"	28	14	14	28	44
+"R1"	FALSE	"BRCA1-like"	52	26	26	52	80

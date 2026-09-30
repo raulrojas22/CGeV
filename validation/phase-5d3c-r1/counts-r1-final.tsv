@@ -1,0 +1,5 @@
+"state"	"scoped"	"operation"	"sequence_file_identity"	"sequence_cache_validate"	"sequence_cache_finish"	"file.info"	"normalizePath"
+"R1"	TRUE	"TP53-like"	2	1	1	2	18
+"R1"	TRUE	"BRCA1-like"	2	1	1	2	30
+"R1"	FALSE	"TP53-like"	28	14	14	28	44
+"R1"	FALSE	"BRCA1-like"	52	26	26	52	80

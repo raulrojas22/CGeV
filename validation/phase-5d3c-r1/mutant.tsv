@@ -1,0 +1,12 @@
+"file"	"test"	"passed"	"failed"	"error"	"warning"	"skipped"
+"test-sequence-operation-identity.R"	"snapshot then replacement purges old warm values on outer exit"	2	4	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"replacement between exon reads may mix in-flight bases but retains no generation"	4	3	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"replacement after extraction before composition insertion cannot label A as B"	2	4	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"replacement immediately before outer exit purges entries already inserted"	4	2	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"expired and serialized capabilities cannot bypass fresh validation"	4	5	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"default calls and superseded contexts remain independent inside an active scope"	1	5	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"wrong-path contexts and errors cannot retain a live capability"	7	0	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"one logical warm request uses two identity stats regardless of exon count"	0	2	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"wide transcript per-exon loop shares its snapshot and purges mixed reads"	2	3	FALSE	0	FALSE
+"test-sequence-operation-identity.R"	"scoped persistent future worker self-heals across repeated replacements"	0	0	FALSE	0	TRUE
+"test-sequence-operation-identity.R"	"forked workers cannot borrow a live parent-process snapshot"	0	0	FALSE	0	TRUE

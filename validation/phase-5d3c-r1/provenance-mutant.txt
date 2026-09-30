@@ -1,0 +1,23 @@
+sequence-cache-invalidation: .......................................................................................................................12..................................................................................................................................................
+Sequence cache cycles: counts= 3,2,1,1,1,1,1  retained bytes= 12808..12808
+.........................S...........................................
+
+══ Skipped ═════════════════════════════════════════════════════════════════════
+1. persistent multisession worker follows multiple replacements in one PID ('test-sequence-cache-invalidation.R:145:5') - Reason: requires local worker sockets
+
+══ Failed ══════════════════════════════════════════════════════════════════════
+── 1. Failure ('test-sequence-cache-invalidation.R:105:5'): composition rejects
+Expected `result$counts` to be identical to `c(A = 0L, T = 0L, C = 8L, G = 0L)`.
+Differences:
+2/4 mismatches (average diff: 8)
+[1] 8 - 0 ==  8
+[3] 0 - 8 == -8
+
+── 2. Failure ('test-sequence-cache-invalidation.R:109:9'): composition rejects
+Expected `result$counts` to be identical to `c(A = 0L, T = 0L, C = 8L, G = 0L)`.
+Differences:
+2/4 mismatches (average diff: 8)
+[1] 8 - 0 ==  8
+[3] 0 - 8 == -8
+
+══ DONE ════════════════════════════════════════════════════════════════════════

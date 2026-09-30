@@ -1,0 +1,30 @@
+sequence-operation-identity: ...............................................................
+R1 scoped worker PID: 95488
+.12...
+
+══ Failed ══════════════════════════════════════════════════════════════════════
+── 1. Failure ('test-sequence-operation-identity.R:203:9'): forked workers canno
+Expected `child$matches` to be FALSE.
+Differences:
+`actual`:   TRUE
+`expected`: FALSE
+
+Backtrace:
+    ▆
+ 1. └─e$with_sequence_file_identity(...) at test-sequence-operation-identity.R:195:5
+ 2.   └─code(context)
+ 3.     └─testthat::expect_false(child$matches) at test-sequence-operation-identity.R:203:9
+
+── 2. Failure ('test-sequence-operation-identity.R:204:9'): forked workers canno
+Expected `child$sequence` to be identical to "CCCCCCCC".
+Differences:
+1/1 mismatches
+x[1]: "AAAAAAAA"
+y[1]: "CCCCCCCC"
+Backtrace:
+    ▆
+ 1. └─e$with_sequence_file_identity(...) at test-sequence-operation-identity.R:195:5
+ 2.   └─code(context)
+ 3.     └─testthat::expect_identical(child$sequence, "CCCCCCCC") at test-sequence-operation-identity.R:204:9
+
+══ DONE ════════════════════════════════════════════════════════════════════════
