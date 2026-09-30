@@ -4,7 +4,7 @@
 
 Before editing, HEAD was exactly `ba5d9002d953502b97112c310bb44836aab808b0`, tree `9feb2acfa4184d0061a5d335e2999d6db7a0ad5f`; branch `phase-5d3c-sequence-identity`; status clean. The existing isolated clone `/private/tmp/cgev-phase-5d3c-20260929` was reused. Baseline/master remains `31debadccd9505f5ca7683445806b5632d9e5b13`.
 
-R1 is one new local commit above ba5d900, not an amendment. Its exact SHA/tree and final Git status are reported in the final response because this report is itself part of that commit. Runtime edits are limited to `R/utils.R` and `R/modules.R`. Other additions are the focused R1 test and evidence in this directory. No changes to Colors, A_FULLAPP or master; no push, PR, merge or deployment.
+The unchanged R1 implementation is commit `c3b4a049b873c92ab164a2d47398ff444d137f08`, tree `ed3510d276364af8500e4422ca69552b676bf021`, directly above ba5d900. This report now includes the independent adjudication in a separate documentation-only commit; the implementation candidate is not amended. Runtime edits are limited to `R/utils.R` and `R/modules.R`. Other additions are the focused R1 test and evidence in this directory. No changes to Colors, A_FULLAPP or master. The implementation close-out did not push or open a PR. Promotion preparation now authorizes a branch push and PR; merging and deployment remain excluded.
 
 ## Optimization design
 
@@ -39,7 +39,7 @@ Each identity still stats source + `.fai` + `.gzi` in one vectorized file.info c
 
 **Independent calls intentionally do not share snapshots.** Running R1 through the original unscoped sequence of separate public calls still uses 28/52 identity computations (one nested FaFile pair is removed). The two-check result requires the explicit logical boundary, as integrated in actual prefetch/fetch/segmented operations. It does not claim that an entire UI card or separate reactive events share one snapshot. See `counts.tsv`.
 
-## Performance protocol and results
+## A. Codex original-host performance protocol and results
 
 `benchmark-three-states.R` executes the existing committed `validation/phase-5d3c/benchmark.R` and `request-benchmark.R` harnesses. The timing reporter is replaced with five-batch median/min/max reporting. Request sample size remains 500 per batch after 10 warmups; direct/splice/composition microbenchmarks use 2,000 calls per batch after 20 warmups. Garbage collection precedes each timed batch.
 
@@ -49,7 +49,7 @@ Extra backend measurements use 500 calls per batch after 20 warmups. Indexed int
 
 The initial exploratory run overlapped other validation. Final measurements were serial, without concurrent tests or compilation. `performance-final.tsv` combines baseline and parent measurements from `performance-before-pid.tsv` with the final PID-guard R1 measurements in `performance-r1-final.tsv` (raw output: `performance-r1-final.txt`). Baseline and parent source were unchanged, so those measurements were not repeated. `performance-final.txt` is the earlier pre-PID serial log, not final R1 evidence. The exploratory measurements remain in `performance.tsv` for transparency.
 
-All times are median milliseconds. Recovery is `(parent − R1) / parent`; negative means slower.
+These are host-specific Codex measurements, retained unchanged. The 41.1% / 38.4% recovery below was not independently reproduced and must not be generalized. All times are median milliseconds. Recovery is `(parent − R1) / parent`; negative means slower.
 
 | Operation | Baseline | ba5d900 | Final R1 | Parent regression | R1 recovery | R1 overhead vs baseline |
 |---|---:|---:|---:|---:|---:|---:|
@@ -61,13 +61,44 @@ All times are median milliseconds. Recovery is `(parent − R1) / parent`; negat
 | TP53-like request | 4.8540 | 9.5120 | 5.6000 | +96.0% | +41.1% | +15.4% |
 | BRCA1-like request | 7.5280 | 14.0540 | 8.6520 | +86.7% | +38.4% | +14.9% |
 
-**Performance decision: keep R1.** It removes 3.912 ms (41.1%) from the parent TP53-like operation and 5.402 ms (38.4%) from BRCA1-like. Remaining baseline overhead is 0.746 ms and 1.124 ms, respectively. These synthetic 20 kb/11-exon and 80 kb/23-exon operations approximate the sequence portion of a card; they do not measure complete CGeV rendering, annotation work or network latency. Actual card savings depend on how much work is grouped in the integrated scope.
+**Original-host observation:** On this host, R1 removes 3.912 ms (41.1%) from the parent TP53-like operation and 5.402 ms (38.4%) from BRCA1-like. Remaining baseline overhead is 0.746 ms and 1.124 ms, respectively. These synthetic 20 kb/11-exon and 80 kb/23-exon operations approximate the sequence portion of a card; they do not measure complete CGeV rendering, annotation work or network latency. Actual card savings depend on how much work is grouped in the integrated scope.
 
 The removed cost is repeated identity construction/stat/path processing across nested calls and exons. One entry and one exit validation remain; cache lookup, backend reads and exon processing remain. Independent memo hits retain two stats and add context-lifetime checks, explaining their small R1 increase.
 
 Before the PID guard, serial R1 request medians were 5.392/8.274 ms; final guard medians are 5.600/8.652 ms (+3.9%/+4.6%). Those separate runs are not a paired isolation experiment, so the entire difference cannot be attributed to the PID comparison. Counts remain exactly two, and the necessary guard does not erase the material recovery.
 
 The complete samples, ranges and counts are retained in the TSV files. Single independent memo hits can have a small context-lifecycle overhead in R1: their two stats are intentionally preserved. The improvement comes from removing repeated path/stat validation inside explicitly grouped work, not from skipping independent-request validation. Existing parent measurements (4.616→9.074 ms TP53-like, 7.292→13.974 ms BRCA1-like) and the independent validator's different host timings remain valid historical measurements; the three-state table above is the current same-host comparison.
+
+## B. Independent-validator paired measurements
+
+The independent adjudication supplied for promotion on 2026-09-30 applies to exact implementation commit `c3b4a049b873c92ab164a2d47398ff444d137f08` and tree `ed3510d276364af8500e4422ca69552b676bf021`. The following are the validator's same-host paired medians, as reported by the user; they are separate from the Codex benchmark and are not a rerun performed for this documentation update.
+
+| Scoped request | Baseline (us) | ba5d900 (us) | R1 (us) | Reduction vs ba5d900 | R1 overhead vs baseline |
+|---|---:|---:|---:|---:|---:|
+| TP53-like | 4470 | 5233 | 4854 | 379 us / 7.2% | 384 us / 8.6% |
+| BRCA1-like | 7117 | 8326 | 7546 | 780 us / 9.4% | 429 us / 6.0% |
+
+The independent validator confirmed the performance direction and mechanism, but did not reproduce the large absolute recovery in the Codex original-host measurements. The 41.1% / 38.4% figures are host-specific observations, not independently reproduced or generally reproducible results.
+
+## C. Structural result and performance conclusion
+
+The strongest portable evidence is the independently confirmed reduction from **30/54 to 2/2 identity computations and file.info calls** for the warmed scoped TP53/BRCA1 logical requests. Nested calls and exon loops reuse the same active operation identity; independent requests still validate freshly.
+
+**Benefit confirmed; magnitude is filesystem/host dependent.** Keep R1. On the independent validator's host these scoped requests remain approximately 6–9% above baseline. Independent micro-calls remain intentionally more expensive because fresh validation is preserved. No claim is made that either host's absolute timings predict complete UI card latency.
+
+## Independent validation adjudication
+
+**R1 INDEPENDENT PASS — SAFE TO PROMOTE**
+
+The independent validator confirmed:
+
+- Persisted-cache and next-request scientific correctness are preserved; a stale generation cannot survive outer replacement detection.
+- Expired and serialized contexts cannot bypass fresh validation, and independent requests freshly validate the filesystem.
+- The PID guard rejects a context inherited by an actual fork. Removing that guard reproduced stale A in the fork negative control.
+- Persistent multisession workers self-heal without restart or broadcast invalidation.
+- Full suite: **1,288/1,288 expectations passed**.
+- Scoped TP53/BRCA1 identity computations are **30/54 -> 2/2**.
+- Request-level improvement versus ba5d900 was independently reproduced, with the host-dependent magnitude shown above.
 
 ## Scientific adversarial regression
 
@@ -183,7 +214,7 @@ The committed runtime contains none of these bypasses. Tests and raw output docu
 - **Can expired or serialized contexts bypass validation?** No; active ownership/runtime/frame checks reject them.
 - **Worth keeping?** Yes: the scoped workload uses two rather than 30/54 identity computations and the final measured logical-request latency improves substantially. Small independent-hit overhead remains explicit in the performance table.
 
-Residual limits are inherited from ba5d900: indistinguishable size/mtime/ctime metadata, coarse/unavailable ctime, Windows creation-time semantics, NFS attribute caching and changes after the final stat. No hash/inode/content-transaction guarantee is added. Real deployment-filesystem timing and independent revalidation remain necessary. An operation requiring a consistent snapshot while files are concurrently rewritten still needs coordinated publication or a stronger file-reading contract outside this revision.
+Residual limits are inherited from ba5d900: indistinguishable size/mtime/ctime metadata, coarse/unavailable ctime, Windows creation-time semantics, NFS attribute caching and changes after the final stat. No hash/inode/content-transaction guarantee is added. Deployment-filesystem timing remains host-specific; independent revalidation of the exact implementation has now passed. An operation requiring a consistent snapshot while files are concurrently rewritten still needs coordinated publication or a stronger file-reading contract outside this revision.
 
 ## Evidence provenance and close-out
 
@@ -193,6 +224,6 @@ The prefetch and download scripts were run individually after resumption and bot
 
 ## Blockers and next step
 
-No implementation or final validation blocker remains. Keep ba5d900 unchanged as the independently validated parent. Independently revalidate the exact R1 commit/tree on the intended shared-runtime host, especially context lifetime, the four mid-request hooks, same-PID workers and the explicit scoped versus unscoped performance distinction. Do not push, merge or deploy in this phase.
+No implementation or independent-validation blocker remains. Preserve ba5d900 and c3b4a049 unchanged. Publish the branch and open a PR to master with this documentation-only adjudication, then inspect CI/check status. Do not merge or deploy as part of promotion preparation. No runtime or test change, and no expensive validation rerun, is required for this report-only update.
 
-R1 SAFE — READY FOR INDEPENDENT REVALIDATION
+R1 INDEPENDENT PASS — SAFE TO PROMOTE
