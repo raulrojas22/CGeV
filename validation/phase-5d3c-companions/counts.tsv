@@ -1,0 +1,5 @@
+"state"	"request"	"sequence_file_identity"	"file.info"	"sequence_cache_validate"	"sequence_cache_finish"	"sequence_fasta_companions_compatible"
+"parent"	"TP53"	2	2	1	1	0
+"parent"	"BRCA1"	2	2	1	1	0
+"candidate"	"TP53"	2	2	1	1	0
+"candidate"	"BRCA1"	2	2	1	1	0

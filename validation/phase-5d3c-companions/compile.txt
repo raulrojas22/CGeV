@@ -1,0 +1,80 @@
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+
+Attaching package: ‘scales’
+
+The following object is masked from ‘package:purrr’:
+
+    discard
+
+
+Attaching package: ‘bslib’
+
+The following object is masked from ‘package:utils’:
+
+    page
+
+
+Attaching package: ‘shinyjs’
+
+The following object is masked from ‘package:shiny’:
+
+    runExample
+
+The following objects are masked from ‘package:methods’:
+
+    removeClass, show
+
+
+Attaching package: ‘shinyWidgets’
+
+The following object is masked from ‘package:shinyjs’:
+
+    alert
+
+
+Attaching package: ‘vroom’
+
+The following object is masked from ‘package:scales’:
+
+    col_factor
+
+
+Attaching package: ‘future’
+
+The following object is masked from ‘package:shinyjs’:
+
+    reset
+
+R/alias_resolution.R compiled in 0.37 s
+R/utils.R compiled in 3.188 s
+R/shared_gene_cache.R compiled in 0.052 s
+R/feedback_delivery.R compiled in 0.069 s
+R/background_report_jobs.R compiled in 0.116 s
+R/modules.R compiled in 1.17 s
+R/server_cache_warm.R compiled in 0.064 s
+R/server_go_domain.R compiled in 0.421 s
+R/string_cache.R compiled in 0.037 s
+R/string_annotation.R compiled in 0.091 s
+R/string_worker.R compiled in 0.089 s
+R/server_analytics_domain.R compiled in 0.24 s
+R/server_autocomplete_domain.R compiled in 0.31 s
+R/server_plot_lifecycle_domain.R compiled in 0.426 s
+R/server_state_helpers_domain.R compiled in 0.077 s
+R/server_source_history_domain.R compiled in 0.017 s
+R/server_popup_status_domain.R compiled in 0.023 s
+R/server_session_snapshot_domain.R compiled in 0.165 s
+R/server_shared_analysis_domain.R compiled in 0.821 s
+R/server_ncbi_download_domain.R compiled in 0.278 s
+R/gene_search_lib.R compiled in 0.488 s
+server.R compiled in 26.417 s
+Compiled 22 source files; JIT remains enabled at runtime.

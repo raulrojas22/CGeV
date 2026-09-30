@@ -7232,6 +7232,41 @@ sequence_cache_purge <- function(path) {
     invisible(NULL)
 }
 
+# Metadata cannot establish companion provenance (an old index can be copied
+# with fresh timestamps). On identity transitions only, rebuild private indexes
+# from the current source and compare their complete layout/block maps. This
+# streams the source once, does not hash bases or modify published companions,
+# and keeps memory bounded by index comparison chunks. Failure means fallback.
+sequence_fasta_companions_compatible <- function(path, fai_exists, gzi_exists) {
+    if (!requireNamespace("Rsamtools", quietly = TRUE)) return(FALSE)
+    scratch <- tempfile("cgev-fasta-index-")
+    if (!dir.create(scratch)) return(FALSE)
+    on.exit(unlink(scratch, recursive = TRUE), add = TRUE)
+    candidate <- file.path(scratch, basename(path))
+    tryCatch(suppressWarnings({
+        # A private symlink avoids copying a potentially multi-GB source. On
+        # platforms that cannot create it, fail closed to streaming extraction.
+        if (!file.symlink(path, candidate)) return(FALSE)
+        Rsamtools::indexFa(candidate)
+        same_bytes <- function(a, b) {
+            if (!file.exists(a) || !file.exists(b)) return(FALSE)
+            x <- file(a, "rb"); on.exit(close(x), add = TRUE)
+            y <- file(b, "rb"); on.exit(close(y), add = TRUE)
+            repeat {
+                left <- readBin(x, "raw", n = 65536L)
+                right <- readBin(y, "raw", n = 65536L)
+                if (!identical(left, right)) return(FALSE)
+                if (!length(left)) return(TRUE)
+            }
+        }
+        fai_ok <- !fai_exists || same_bytes(paste0(path, ".fai"), paste0(candidate, ".fai"))
+        # A compressed source with a published .fai also needs its current .gzi.
+        needs_gzi <- file.exists(paste0(candidate, ".gzi"))
+        gzi_ok <- if (gzi_exists) same_bytes(paste0(path, ".gzi"), paste0(candidate, ".gzi")) else !needs_gzi
+        isTRUE(fai_ok && gzi_ok)
+    }), error = function(e) FALSE)
+}
+
 sequence_cache_validate <- function(path) {
     id <- sequence_file_identity(path)
     if (is.null(id)) return(NULL)
@@ -7243,17 +7278,22 @@ sequence_cache_validate <- function(path) {
         source_changed <- !is.null(previous) &&
             !identical(lapply(previous$identity[c("size", "mtime", "ctime")], `[`, 1L),
                        lapply(id[c("size", "mtime", "ctime")], `[`, 1L))
-        index_unchanged <- !is.null(previous) &&
-            identical(lapply(previous$identity[c("size", "mtime", "ctime")], `[`, -1L),
-                      lapply(id[c("size", "mtime", "ctime")], `[`, -1L))
-        # An unchanged index must not survive a source replacement. On first
-        # observation (including provenance eviction), an older index is also
-        # untrusted. Missing indexes may still be built by the existing path.
-        index_exists <- !is.na(id$size[2L])
-        older_index <- isTRUE(id$mtime[2L] < id$mtime[1L]) ||
-            isTRUE(id$ctime[2L] < id$ctime[1L])
-        stale_index <- index_exists && (older_index ||
-            (isTRUE(index_unchanged) && (isTRUE(source_changed) || isTRUE(previous$stale_index))))
+        companion_unchanged <- function(i) !is.null(previous) &&
+            identical(lapply(previous$identity[c("size", "mtime", "ctime")], `[`, i),
+                      lapply(id[c("size", "mtime", "ctime")], `[`, i))
+        companion_older <- function(i) isTRUE(id$mtime[i] < id$mtime[1L]) ||
+            isTRUE(id$ctime[i] < id$ctime[1L])
+        fai_exists <- !is.na(id$size[2L])
+        gzi_exists <- !is.na(id$size[3L])
+        fai_unchanged <- companion_unchanged(2L)
+        gzi_unchanged <- companion_unchanged(3L)
+        fai_older <- companion_older(2L)
+        gzi_older <- companion_older(3L)
+        stale_index <- (fai_exists && (fai_older || (source_changed && fai_unchanged))) ||
+            (gzi_exists && (gzi_older || (source_changed && gzi_unchanged)))
+        if (!stale_index && (fai_exists || gzi_exists) && !is_twobit_file(id$path)) {
+            stale_index <- !isTRUE(sequence_fasta_companions_compatible(id$path, fai_exists, gzi_exists))
+        }
         assign(id$path, list(identity = id, stale_index = stale_index), .sequence_file_state)
         # Bound small provenance state as well as sequence values. Eviction
         # drops that path's memo tables before forgetting its identity.
@@ -8014,7 +8054,7 @@ extract_sequence_from_fasta <- function(fasta_path, seqid, start_pos, end_pos, .
             {
                 fa <- get_cached_fafile(fasta_path, .sequence_context = sequence_context)
                 if (is.null(fa)) {
-                    return(NULL)
+                    stop("Indexed FASTA handle unavailable")
                 }
                 seqid_direct <- trimws(as.character(seqid %||% ""))
                 if (nzchar(seqid_direct)) {
@@ -8030,9 +8070,9 @@ extract_sequence_from_fasta <- function(fasta_path, seqid, start_pos, end_pos, .
                         return(direct_res)
                     }
                 }
-                resolved_seqname <<- resolve_seqname_in_fasta(fasta_path, seqid, seq_names = NULL, .sequence_context = sequence_context)
+                resolved_seqname <- resolve_seqname_in_fasta(fasta_path, seqid, seq_names = NULL, .sequence_context = sequence_context)
                 if (is.null(resolved_seqname)) {
-                    return(NULL)
+                    stop("Indexed FASTA seqname unavailable")
                 }
                 gr <- GenomicRanges::GRanges(
                     seqnames = resolved_seqname,

@@ -1,0 +1,26 @@
+   request batch     state   us
+1     TP53     1    parent 5402
+2     TP53     1 candidate 5606
+3     TP53     2 candidate 5796
+4     TP53     2    parent 5452
+5     TP53     3    parent 5320
+6     TP53     3 candidate 5626
+7     TP53     4 candidate 5574
+8     TP53     4    parent 5582
+9     TP53     5    parent 5464
+10    TP53     5 candidate 5560
+11   BRCA1     1    parent 8554
+12   BRCA1     1 candidate 8544
+13   BRCA1     2 candidate 8774
+14   BRCA1     2    parent 8600
+15   BRCA1     3    parent 8490
+16   BRCA1     3 candidate 8642
+17   BRCA1     4 candidate 8742
+18   BRCA1     4    parent 8868
+19   BRCA1     5    parent 8718
+20   BRCA1     5 candidate 8848
+  request     state   us
+1   BRCA1 candidate 8742
+2    TP53 candidate 5606
+3   BRCA1    parent 8600
+4    TP53    parent 5452
