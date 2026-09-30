@@ -1,0 +1,5 @@
+"file"	"test"	"passed"	"failed"	"error"	"warning"	"skipped"
+"test-sequence-counts-gc-index.R"	"base counts preserve ambiguity, whitespace and missing values"	10	0	FALSE	0	FALSE
+"test-sequence-counts-gc-index.R"	"prefix GC preserves coordinates, canonical denominators and rounding"	8	0	FALSE	0	FALSE
+"test-sequence-counts-gc-index.R"	"transcript cache preserves known-base denominator and invalidates by source"	9	0	FALSE	0	FALSE
+"test-sequence-counts-gc-index.R"	"sequence fetch reuses the transcript without conflating genomic fallback"	11	0	FALSE	0	FALSE

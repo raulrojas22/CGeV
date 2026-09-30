@@ -1,0 +1,22 @@
+"file"	"test"	"passed"	"failed"	"error"	"warning"	"skipped"
+"test-sequence-cache-invalidation.R"	"bases and composition follow atomic indexed"	7	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"bases and composition follow rewrite indexed"	7	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"bases and composition follow same-size indexed"	7	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"bases and composition follow preserved-mtime indexed"	9	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"bases and composition follow atomic fallback"	7	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"bases and composition follow rewrite fallback"	7	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"bases and composition follow same-size fallback"	7	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"bases and composition follow preserved-mtime fallback"	9	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"unchanged inputs reuse values and unrelated genomes stay warm"	37	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"deletion fails closed and recreation observes new bases"	15	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"header, seqname and resolution follow source and index replacements"	7	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"composition rejects supplied sequence without matching provenance"	2	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"repeated replacements retain one bounded generation"	146	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"relative paths and retargeted symlinks return current bases"	16	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"truncated or malformed replacement cannot return old bases"	9	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"persistent multisession worker follows multiple replacements in one PID"	9	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"2bit metadata, offsets and sidecars reject preserved-mtime replacement"	9	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"copied sequence memo state is checked against the worker filesystem"	7	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"changed FASTA layout cannot reuse an old on-disk index"	25	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"a replacement during composition extraction cannot poison the next version"	1	0	FALSE	0	FALSE
+"test-sequence-cache-invalidation.R"	"2bit sidecar writes reject seqnames from an older source identity"	1	0	FALSE	0	FALSE

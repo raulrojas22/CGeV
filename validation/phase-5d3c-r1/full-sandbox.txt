@@ -1,0 +1,118 @@
+alias-cache-invalidation: ..............................................................1
+aligned-correlation-scheduling: .................
+aligned-fast-path-scope: .....
+alignment-lazy-mode: ..........................................
+autocomplete-normalized-cache: ....................................................................................
+cache-warm-tabix-flag: .....
+compact-gene-index: .....................................................
+compact-girafe-svg-html: ............................................................
+compiled-runtime: ..................................
+first-paint-session-close: ..........
+gene-plot-model-cache-identity: .....................
+girafe-shared-cache-identity: ............................
+homologous-hydrated-lifecycle: ...................
+isoform-collapse-pending: ...........................
+isoform-progressive-render: ...................................
+keyed-reactive-map: ..................
+native-launcher-root-contract: ...............
+native-twobit-reader: .........
+ncbi-cache: ......................
+ortho-first-paint-gate: ................................................................
+orthologous-local-cache-context: .......................................
+orthologous-transcript-split-reuse: ..........................
+runtime-cache-env: ..........
+sequence-cache-invalidation: ...........................................................................................................................................................................................................................................................................
+Sequence cache cycles: counts= 3,2,1,1,1,1,1  retained bytes= 12808..12808
+.........................S...........................................
+sequence-counts-gc-index: ......................................
+sequence-operation-identity: ......................................................S
+session-deferred: ..........................................
+session-source-restore: .........
+shared-report-staging: ...
+shared-runtime-cwd-safety: 234..5..6........................................7
+
+══ Skipped ═════════════════════════════════════════════════════════════════════
+1. persistent multisession worker follows multiple replacements in one PID ('test-sequence-cache-invalidation.R:145:5') - Reason: requires local worker sockets
+
+2. scoped persistent future worker self-heals across repeated replacements ('test-sequence-operation-identity.R:170:5') - Reason: requires local worker sockets
+
+══ Failed ══════════════════════════════════════════════════════════════════════
+── 1. Error ('test-alias-cache-invalidation.R:183:5'): persistent multisession w
+Error in `serverSocket(port = port)`: creation of server socket failed: port 11238 cannot be opened
+Backtrace:
+     ▆
+  1. ├─future::plan(future::multisession, workers = I(1)) at test-alias-cache-invalidation.R:183:5
+  2. │ └─future (local) plan_set(...)
+  3. │   └─future:::plan_init(stack[[1]], debug = debug)
+  4. │     └─future:::makeFutureBackend(evaluator, debug = debug)
+  5. │       └─base::do.call(factory, args = args, envir = envir)
+  6. └─future (local) `<fn>`(workers = `<I<dbl>>`)
+  7.   └─future::ClusterFutureBackend(...)
+  8.     └─clusterRegistry$startCluster(...)
+  9.       └─future (local) makeCluster(workers, ...)
+ 10.         ├─base::do.call(makeClusterPSOCK, args = args, quote = TRUE)
+ 11.         └─parallelly (local) `<fn>`(base::quote(`<I<int>>`), rscript_libs = base::quote("/Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/library"))
+ 12.           └─base::serverSocket(port = port)
+
+── 2. Error ('test-shared-runtime-cwd-safety.R:107:5'): reproducibility packages
+Error in `cgv_zip_directory(zipfile = zip_staging, directory = work_dir, files = files)`: Creating a reproducibility package requires the 'processx' package.
+Backtrace:
+    ▆
+ 1. └─cwd_write_package(record$env, pkg_root) at test-shared-runtime-cwd-safety.R:107:5
+ 2.   └─env$cgv_write_reproducibility_package(...) at test-shared-runtime-cwd-safety.R:85:5
+ 3.     └─cgv_zip_directory(...)
+
+── 3. Error ('test-shared-runtime-cwd-safety.R:153:9'): reproducibility ZIP sema
+Error in `cgv_zip_directory(zipfile = zip_staging, directory = work_dir, files = files)`: Creating a reproducibility package requires the 'processx' package.
+Backtrace:
+    ▆
+ 1. └─build("first") at test-shared-runtime-cwd-safety.R:162:5
+ 2.   └─cwd_write_package(record$env, pkg_root) at test-shared-runtime-cwd-safety.R:153:9
+ 3.     └─env$cgv_write_reproducibility_package(...) at test-shared-runtime-cwd-safety.R:85:5
+ 4.       └─cgv_zip_directory(...)
+
+── 4. Failure ('test-shared-runtime-cwd-safety.R:182:5'): reproducibility packag
+`cwd_write_package(record$env, broken_root)` threw an error with unexpected message.
+Expected match: "Could not create the reproducibility package archive"
+Actual message: "Creating a reproducibility package requires the 'processx' package."
+Backtrace:
+    ▆
+ 1. ├─testthat::expect_error(...) at test-shared-runtime-cwd-safety.R:182:5
+ 2. │ └─testthat:::quasi_capture(...)
+ 3. │   ├─testthat (local) .capture(...)
+ 4. │   │ └─base::withCallingHandlers(...)
+ 5. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+ 6. └─cwd_write_package(record$env, broken_root)
+ 7.   └─env$cgv_write_reproducibility_package(...) at test-shared-runtime-cwd-safety.R:85:5
+ 8.     └─cgv_zip_directory(...)
+
+── 5. Failure ('test-shared-runtime-cwd-safety.R:196:5'): reproducibility packag
+`cwd_write_package(record$env, pkg_root)` threw an error with unexpected message.
+Expected match: "Could not create the reproducibility package archive"
+Actual message: "Creating a reproducibility package requires the 'processx' package."
+Backtrace:
+    ▆
+ 1. ├─testthat::expect_error(...) at test-shared-runtime-cwd-safety.R:196:5
+ 2. │ └─testthat:::quasi_capture(...)
+ 3. │   ├─testthat (local) .capture(...)
+ 4. │   │ └─base::withCallingHandlers(...)
+ 5. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+ 6. └─cwd_write_package(record$env, pkg_root)
+ 7.   └─env$cgv_write_reproducibility_package(...) at test-shared-runtime-cwd-safety.R:85:5
+ 8.     └─cgv_zip_directory(...)
+
+── 6. Error ('test-shared-runtime-cwd-safety.R:220:5'): cgv_zip_directory archiv
+Error in `record$env$cgv_zip_directory(zip_path, source_dir)`: Creating a reproducibility package requires the 'processx' package.
+Backtrace:
+    ▆
+ 1. └─record$env$cgv_zip_directory(zip_path, source_dir) at test-shared-runtime-cwd-safety.R:220:5
+
+── 7. Error ('test-shared-runtime-cwd-safety.R:538:5'): one session's packaging
+Error in `cgv_zip_directory(zipfile = zip_staging, directory = work_dir, files = files)`: Creating a reproducibility package requires the 'processx' package.
+Backtrace:
+    ▆
+ 1. └─cwd_write_package(session_a$env, pkg_root) at test-shared-runtime-cwd-safety.R:538:5
+ 2.   └─env$cgv_write_reproducibility_package(...) at test-shared-runtime-cwd-safety.R:85:5
+ 3.     └─cgv_zip_directory(...)
+
+══ DONE ════════════════════════════════════════════════════════════════════════

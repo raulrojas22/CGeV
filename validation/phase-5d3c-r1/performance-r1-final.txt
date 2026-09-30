@@ -1,0 +1,7 @@
+R1 interval-hit median_us 236.5 range 235 239.5
+R1 splice-hit median_us 697.5 range 681.5 702.5
+R1 composition-hit median_us 703.5 range 701.5 746
+R1 TP53-like median_us 5600 range 5516 5614
+R1 BRCA1-like median_us 8652 range 8518 8680
+R1 indexed-interval-scan median_us 2536
+R1 fallback-full-record-hit-exact-evicted median_us 794

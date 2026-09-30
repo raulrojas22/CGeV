@@ -3211,35 +3211,37 @@ plotServerHomologous <- function(id, data, max_gene_length, min_gene_coord, max_
                     fn_fetch_gene <- fetch_gene_data_sync
 
                     run_sequence_prefetch <- function() {
-                        gs_seq <- ""
-                        gc_span_fetch_ms <- 0
-                        if (isTRUE(local_need_gc_span) && isTRUE(local_gs_ok) && is.finite(local_gs_start) && is.finite(local_gs_end) &&
-                            local_gs_end > local_gs_start && nzchar(local_gs_seqid)) {
-                            gc_span_t0 <- app_perf_now()
-                            gs_seq <- tryCatch(
-                                fn_extract_seq(local_genome, local_gs_seqid, as.integer(local_gs_start), as.integer(local_gs_end)),
-                                error = function(e) ""
+                        with_sequence_file_identity(local_genome, function(sequence_context) {
+                            gs_seq <- ""
+                            gc_span_fetch_ms <- 0
+                            if (isTRUE(local_need_gc_span) && isTRUE(local_gs_ok) && is.finite(local_gs_start) && is.finite(local_gs_end) &&
+                                local_gs_end > local_gs_start && nzchar(local_gs_seqid)) {
+                                gc_span_t0 <- app_perf_now()
+                                gs_seq <- tryCatch(
+                                    fn_extract_seq(local_genome, local_gs_seqid, as.integer(local_gs_start), as.integer(local_gs_end), .sequence_context = sequence_context),
+                                    error = function(e) ""
+                                )
+                                gc_span_fetch_ms <- app_perf_elapsed_ms(gc_span_t0)
+                            }
+                            seq_result <- list(sequence = "", file_content = "", fasta_id = local_tx_label)
+                            gene_sequence_fetch_ms <- 0
+                            if (isTRUE(local_need_sequence) && !is.null(local_genome) && nzchar(local_genome) && file.exists(local_genome)) {
+                                gene_sequence_t0 <- app_perf_now()
+                                seq_result <- tryCatch(
+                                    fn_fetch_gene(local_chr, local_tx_coords,
+                                        fasta_path = local_genome, fasta_id = local_tx_label,
+                                        exon_ranges = local_exon_ranges, strand = local_tx_strand, .sequence_context = sequence_context),
+                                    error = function(e) list(sequence = "", file_content = "", fasta_id = local_tx_label)
+                                )
+                                gene_sequence_fetch_ms <- app_perf_elapsed_ms(gene_sequence_t0)
+                            }
+                            list(
+                                gs_seq = gs_seq,
+                                seq_result = seq_result,
+                                gc_span_fetch_ms = gc_span_fetch_ms,
+                                gene_sequence_fetch_ms = gene_sequence_fetch_ms
                             )
-                            gc_span_fetch_ms <- app_perf_elapsed_ms(gc_span_t0)
-                        }
-                        seq_result <- list(sequence = "", file_content = "", fasta_id = local_tx_label)
-                        gene_sequence_fetch_ms <- 0
-                        if (isTRUE(local_need_sequence) && !is.null(local_genome) && nzchar(local_genome) && file.exists(local_genome)) {
-                            gene_sequence_t0 <- app_perf_now()
-                            seq_result <- tryCatch(
-                                fn_fetch_gene(local_chr, local_tx_coords,
-                                    fasta_path = local_genome, fasta_id = local_tx_label,
-                                    exon_ranges = local_exon_ranges, strand = local_tx_strand),
-                                error = function(e) list(sequence = "", file_content = "", fasta_id = local_tx_label)
-                            )
-                            gene_sequence_fetch_ms <- app_perf_elapsed_ms(gene_sequence_t0)
-                        }
-                        list(
-                            gs_seq = gs_seq,
-                            seq_result = seq_result,
-                            gc_span_fetch_ms = gc_span_fetch_ms,
-                            gene_sequence_fetch_ms = gene_sequence_fetch_ms
-                        )
+                        })
                     }
                     apply_sequence_prefetch <- function(result, source_label = "async") {
                         apply_prefetch_t0 <- app_perf_now()
@@ -4033,44 +4035,46 @@ plotServerOrtologous <- function(id, data, max_gene_length, min_gene_coord, max_
                 ) && !isTRUE(local_need_neighbor)
 
                 run_prefetch_payload <- function() {
-                    gs_seq <- ""
-                    gc_span_fetch_ms <- 0
-                    if (isTRUE(local_gs_ok) && is.finite(local_gs_start) && is.finite(local_gs_end) &&
-                        local_gs_end > local_gs_start && nzchar(local_gs_seqid)) {
-                        gc_span_t0 <- app_perf_now()
-                        gs_seq <- tryCatch(
-                            fn_extract_seq(local_genome, local_gs_seqid, as.integer(local_gs_start), as.integer(local_gs_end)),
-                            error = function(e) ""
+                    with_sequence_file_identity(local_genome, function(sequence_context) {
+                        gs_seq <- ""
+                        gc_span_fetch_ms <- 0
+                        if (isTRUE(local_gs_ok) && is.finite(local_gs_start) && is.finite(local_gs_end) &&
+                            local_gs_end > local_gs_start && nzchar(local_gs_seqid)) {
+                            gc_span_t0 <- app_perf_now()
+                            gs_seq <- tryCatch(
+                                fn_extract_seq(local_genome, local_gs_seqid, as.integer(local_gs_start), as.integer(local_gs_end), .sequence_context = sequence_context),
+                                error = function(e) ""
+                            )
+                            gc_span_fetch_ms <- app_perf_elapsed_ms(gc_span_t0)
+                        }
+                        seq_result <- list(sequence = "", file_content = "", fasta_id = local_tx_label)
+                        gene_sequence_fetch_ms <- 0
+                        if (isTRUE(local_need_sequence) && !is.null(local_genome) && nzchar(local_genome) && file.exists(local_genome)) {
+                            gene_sequence_t0 <- app_perf_now()
+                            seq_result <- tryCatch(
+                                fn_fetch_gene(local_chr, local_tx_coords,
+                                    fasta_path = local_genome, fasta_id = local_tx_label,
+                                    exon_ranges = local_exon_ranges, strand = local_tx_strand, .sequence_context = sequence_context),
+                                error = function(e) list(sequence = "", file_content = "", fasta_id = local_tx_label)
+                            )
+                            gene_sequence_fetch_ms <- app_perf_elapsed_ms(gene_sequence_t0)
+                        }
+                        ctx <- NULL
+                        neighbor_prefetch_ms <- 0
+                        if (isTRUE(local_need_neighbor) && !is.null(local_annotation) && nzchar(local_annotation) && file.exists(local_annotation)) {
+                            neighbor_t0 <- app_perf_now()
+                            ctx <- tryCatch(fn_get_neighbor(local_annotation, local_target_gene), error = function(e) NULL)
+                            neighbor_prefetch_ms <- app_perf_elapsed_ms(neighbor_t0)
+                        }
+                        list(
+                            gs_seq = gs_seq,
+                            seq_result = seq_result,
+                            ctx = ctx,
+                            gc_span_fetch_ms = gc_span_fetch_ms,
+                            gene_sequence_fetch_ms = gene_sequence_fetch_ms,
+                            neighbor_prefetch_ms = neighbor_prefetch_ms
                         )
-                        gc_span_fetch_ms <- app_perf_elapsed_ms(gc_span_t0)
-                    }
-                    seq_result <- list(sequence = "", file_content = "", fasta_id = local_tx_label)
-                    gene_sequence_fetch_ms <- 0
-                    if (isTRUE(local_need_sequence) && !is.null(local_genome) && nzchar(local_genome) && file.exists(local_genome)) {
-                        gene_sequence_t0 <- app_perf_now()
-                        seq_result <- tryCatch(
-                            fn_fetch_gene(local_chr, local_tx_coords,
-                                fasta_path = local_genome, fasta_id = local_tx_label,
-                                exon_ranges = local_exon_ranges, strand = local_tx_strand),
-                            error = function(e) list(sequence = "", file_content = "", fasta_id = local_tx_label)
-                        )
-                        gene_sequence_fetch_ms <- app_perf_elapsed_ms(gene_sequence_t0)
-                    }
-                    ctx <- NULL
-                    neighbor_prefetch_ms <- 0
-                    if (isTRUE(local_need_neighbor) && !is.null(local_annotation) && nzchar(local_annotation) && file.exists(local_annotation)) {
-                        neighbor_t0 <- app_perf_now()
-                        ctx <- tryCatch(fn_get_neighbor(local_annotation, local_target_gene), error = function(e) NULL)
-                        neighbor_prefetch_ms <- app_perf_elapsed_ms(neighbor_t0)
-                    }
-                    list(
-                        gs_seq = gs_seq,
-                        seq_result = seq_result,
-                        ctx = ctx,
-                        gc_span_fetch_ms = gc_span_fetch_ms,
-                        gene_sequence_fetch_ms = gene_sequence_fetch_ms,
-                        neighbor_prefetch_ms = neighbor_prefetch_ms
-                    )
+                    })
                 }
                 apply_prefetch_payload <- function(result, source_label = "async") {
                     apply_prefetch_t0 <- app_perf_now()

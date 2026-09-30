@@ -1,0 +1,9 @@
+tiny.fa homo + globals: 4 serialized bytes: 7315
+tiny.fa homo - globals: 4 serialized bytes: 9526
+tiny.fa ortho + globals: 4 serialized bytes: 15945
+tiny.fa ortho - globals: 4 serialized bytes: 15945
+tiny.2bit homo + globals: 4 serialized bytes: 13600
+tiny.2bit homo - globals: 4 serialized bytes: 14778
+tiny.2bit ortho + globals: 4 serialized bytes: 20031
+tiny.2bit ortho - globals: 4 serialized bytes: 20031
+sequence-prefetch-future-globals-ok

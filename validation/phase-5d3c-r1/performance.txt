@@ -1,0 +1,42 @@
+baseline normalizePath median_us 12.5 range 12 12.5
+baseline file.info median_us 70 range 70 73
+baseline lookup median_us 6.5 range 6.5 7
+baseline interval-hit median_us 28.5 range 28 28.5
+baseline splice-hit median_us 352 range 351 358
+baseline composition-hit median_us 521.5 range 521.5 564
+baseline TP53-like median_us 5054 range 4922 5112
+baseline BRCA1-like median_us 8010 range 7678 8328
+baseline indexed-interval-scan median_us 2062
+baseline fallback-full-record-hit-exact-evicted median_us 454
+parent normalizePath median_us 23.5 range 12 118
+parent file.info median_us 72.5 range 71 93
+parent lookup median_us 8 range 7.5 8.5
+parent interval-hit median_us 221 range 215.5 254
+parent splice-hit median_us 674.5 range 668 684.5
+parent composition-hit median_us 713.5 range 694 752.5
+parent identity median_us 95 range 94.5 97
+parent identity-comparison median_us 0.5 range 0.5 0.5
+parent identity-guard median_us 96.5 range 96.5 98.5
+parent file.info-three-paths median_us 68 range 67 76
+parent identity-construction-only median_us 4.5 range 4 5
+parent identity-independent-comparison median_us 1 range 0.5 1
+parent TP53-like median_us 10700 range 10668 11050
+parent BRCA1-like median_us 15064 range 14548 15732
+parent indexed-interval-scan median_us 2972
+parent fallback-full-record-hit-exact-evicted median_us 1060
+R1 normalizePath median_us 12.5 range 12 13
+R1 file.info median_us 74 range 73 80.5
+R1 lookup median_us 7.5 range 7.5 8
+R1 interval-hit median_us 237 range 235 242.5
+R1 splice-hit median_us 710 range 705.5 712.5
+R1 composition-hit median_us 743.5 range 718.5 756.5
+R1 identity median_us 99 range 97.5 100
+R1 identity-comparison median_us 0.5 range 0.5 1
+R1 identity-guard median_us 101.5 range 100 104
+R1 file.info-three-paths median_us 77.5 range 75.5 78
+R1 identity-construction-only median_us 4 range 4 4.5
+R1 identity-independent-comparison median_us 1 range 0.5 1
+R1 TP53-like median_us 5714 range 5636 5906
+R1 BRCA1-like median_us 8652 range 8632 8868
+R1 indexed-interval-scan median_us 2600
+R1 fallback-full-record-hit-exact-evicted median_us 824

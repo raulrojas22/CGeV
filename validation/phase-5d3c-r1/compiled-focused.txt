@@ -1,0 +1,8 @@
+sequence-operation-identity: ......................................................SS
+
+══ Skipped ═════════════════════════════════════════════════════════════════════
+1. scoped persistent future worker self-heals across repeated replacements ('test-sequence-operation-identity.R:170:5') - Reason: requires local worker sockets
+
+2. forked workers cannot borrow a live parent-process snapshot ('test-sequence-operation-identity.R:192:5') - Reason: requires local worker processes
+
+══ DONE ════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,24 @@
+                                    run tests passed failed errors warnings
+                   compiled-focused.rds    11     54      0      0        0
+                       full-sandbox.rds   153   1230      2      5        0
+                               full.rds   154   1288      0      0        0
+                             mutant.rds    11     26     28      0        0
+                         pid-mutant.rds    11     67      2      0        0
+                  provenance-mutant.rds    21    333      2      0        0
+                         r1-focused.rds     8     49      0      0        0
+        test-native-twobit-reader.R.rds     2      9      0      0        0
+ test-sequence-cache-invalidation.R.rds    21    344      0      0        0
+    test-sequence-counts-gc-index.R.rds     4     38      0      0        0
+ test-sequence-operation-identity.R.rds    10     63      0      0        0
+ skips
+     2
+     2
+     0
+     2
+     0
+     1
+     0
+     0
+     0
+     0
+     0

@@ -1,0 +1,21 @@
+baseline interval-hit median_us 27 range 27 27.5
+baseline splice-hit median_us 339.5 range 338 345.5
+baseline composition-hit median_us 502.5 range 500 542.5
+baseline TP53-like median_us 4854 range 4812 4876
+baseline BRCA1-like median_us 7528 range 7494 7716
+baseline indexed-interval-scan median_us 2044
+baseline fallback-full-record-hit-exact-evicted median_us 430
+parent interval-hit median_us 216.5 range 215.5 217.5
+parent splice-hit median_us 671 range 670.5 680.5
+parent composition-hit median_us 691.5 range 689 735
+parent TP53-like median_us 9512 range 9496 9576
+parent BRCA1-like median_us 14054 range 13974 14414
+parent indexed-interval-scan median_us 2786
+parent fallback-full-record-hit-exact-evicted median_us 1064
+R1 interval-hit median_us 234.5 range 234.5 236
+R1 splice-hit median_us 702.5 range 697.5 750
+R1 composition-hit median_us 715.5 range 713.5 728
+R1 TP53-like median_us 5392 range 5364 5600
+R1 BRCA1-like median_us 8274 range 8248 8442
+R1 indexed-interval-scan median_us 2486
+R1 fallback-full-record-hit-exact-evicted median_us 788

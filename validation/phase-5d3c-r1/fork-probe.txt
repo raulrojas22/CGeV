@@ -1,0 +1,25 @@
+Parent PID: 31257
+$pid
+[1] 31274
+
+$inherited_active
+[1] TRUE
+
+$owner_pid
+[1] 31257
+
+$matches
+[1] FALSE
+
+$value
+[1] "CCCCCCCC"
+
+$checks
+ identity file.info
+        2         2
+
+$next_correct
+[1] TRUE
+
+Parent exit cache entries before next request: 0
+Parent next independent request: B, C=8

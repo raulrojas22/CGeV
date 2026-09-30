@@ -1,0 +1,3 @@
+"file"	"test"	"passed"	"failed"	"error"	"warning"	"skipped"
+"test-native-twobit-reader.R"	"native 2bit reader preserves bases, N blocks, masks and coordinate slicing"	7	0	FALSE	0	FALSE
+"test-native-twobit-reader.R"	"public 2bit extraction uses the native reader without rtracklayer"	2	0	FALSE	0	FALSE

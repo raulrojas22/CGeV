@@ -1,0 +1,101 @@
+sequence-operation-identity: ..1234.567.....89abc.d......e.fghij.klmn.......op..qrsSS
+
+══ Skipped ═════════════════════════════════════════════════════════════════════
+1. scoped persistent future worker self-heals across repeated replacements ('test-sequence-operation-identity.R:170:5') - Reason: requires local worker sockets
+
+2. forked workers cannot borrow a live parent-process snapshot ('test-sequence-operation-identity.R:192:5') - Reason: requires local worker processes
+
+══ Failed ══════════════════════════════════════════════════════════════════════
+── 1. Failure ('test-sequence-operation-identity.R:34:5'): snapshot then replace
+Expected `r1_cache_count(e)` to be identical to 0L.
+Differences:
+1/1 mismatches
+[1] 3 - 0 == 3
+
+── 2. Failure ('test-sequence-operation-identity.R:35:5'): snapshot then replace
+Expected `e$extract_sequence_from_fasta(p, "chr1", 1, 16)` to be identical to `r1_b`.
+Differences:
+1/1 mismatches
+x[1]: "AAAATTTTAAAATTTT"
+y[1]: "CCCCGGGGCCCCGGGG"
+Backtrace:
+    ▆
+ 1. └─r1_next(e, p) at test-sequence-operation-identity.R:35:5
+ 2.   └─testthat::expect_identical(...) at test-sequence-operation-identity.R:18:5
+
+── 3. Failure ('test-sequence-operation-identity.R:35:5'): snapshot then replace
+Expected `e$extract_spliced_exon_sequence(p, "chr1", r1_ex)` to be identical to "CCCCCCCC".
+Differences:
+1/1 mismatches
+x[1]: "AAAAAAAA"
+y[1]: "CCCCCCCC"
+Backtrace:
+    ▆
+ 1. └─r1_next(e, p) at test-sequence-operation-identity.R:35:5
+ 2.   └─testthat::expect_identical(...) at test-sequence-operation-identity.R:19:5
+
+── 4. Failure ('test-sequence-operation-identity.R:35:5'): snapshot then replace
+Expected `e$get_transcript_composition_cached(p, "chr1", r1_ex)$counts` to be identical to `c(A = 0L, T = 0L, C = 8L, G = 0L)`.
+Differences:
+2/4 mismatches (average diff: 8)
+[1] 8 - 0 ==  8
+[3] 0 - 8 == -8
+Backtrace:
+    ▆
+ 1. └─r1_next(e, p) at test-sequence-operation-identity.R:35:5
+ 2.   └─testthat::expect_identical(...) at test-sequence-operation-identity.R:20:5
+
+── 5. Failure ('test-sequence-operation-identity.R:53:5'): replacement between e
+Expected `result$counts` to be identical to `c(A = 4L, T = 0L, C = 4L, G = 0L)`.
+Differences:
+2/4 mismatches (average diff: 4)
+[1] 0 - 4 == -4
+[3] 8 - 4 ==  4
+
+── 6. Failure ('test-sequence-operation-identity.R:54:5'): replacement between e
+Expected `during` to be identical to `c(interval = 2L, composition = 0L)`.
+Differences:
+2/2 mismatches (average diff: 1)
+[1] 3 - 2 == 1
+[2] 1 - 0 == 1
+
+── 7. Failure ('test-sequence-operation-identity.R:55:5'): replacement between e
+Expected `r1_cache_count(e)` to be identical to 0L.
+Differences:
+1/1 mismatches
+[1] 5 - 0 == 5
+
+── 8. Failure ('test-sequence-operation-identity.R:70:5'): replacement after ext
+Expected `r1_cache_count(e)` to be identical to 0L.
+Differences:
+1/1 mismatches
+[1] 3 - 0 == 3
+
+── 9. Failure ('test-sequence-operation-identity.R:71:38'): replacement after ex
+Expected `e$extract_sequence_from_fasta(p, "chr1", 1, 16)` to be identical to `r1_b`.
+Differences:
+1/1 mismatches
+x[1]: "AAAATTTTAAAATTTT"
+y[1]: "CCCCGGGGCCCCGGGG"
+Backtrace:
+    ▆
+ 1. └─r1_next(e, p) at test-sequence-operation-identity.R:71:38
+ 2.   └─testthat::expect_identical(...) at test-sequence-operation-identity.R:18:5
+
+── 10. Failure ('test-sequence-operation-identity.R:71:38'): replacement after e
+Expected `e$extract_spliced_exon_sequence(p, "chr1", r1_ex)` to be identical to "CCCCCCCC".
+Differences:
+1/1 mismatches
+x[1]: "AAAAAAAA"
+y[1]: "CCCCCCCC"
+Backtrace:
+    ▆
+ 1. └─r1_next(e, p) at test-sequence-operation-identity.R:71:38
+ 2.   └─testthat::expect_identical(...) at test-sequence-operation-identity.R:19:5
+  ... and 18 more
+
+
+Maximum number of 10 failures reached, some test results may be missing.
+
+══ DONE ════════════════════════════════════════════════════════════════════════
+No one gets it right on their first try
