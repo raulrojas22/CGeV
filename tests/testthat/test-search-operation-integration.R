@@ -139,8 +139,7 @@ test_that('valid organism/gene confirmation preserves owned external-alias inten
         if (mode == 'homologous') f$session$setInputs(cgv_homo_search_dispatch = before)
         else f$session$setInputs(cgv_ortho_search_dispatch = before)
         expect_true(f$e$search_request_is_current(mode, before$request_id))
-        if (mode == 'homologous') f$session$setInputs(confirm_homo_organism_change_btn = 1)
-        else f$session$setInputs(confirm_ortho_gene_change_btn = 1)
+        f$session$setInputs(cgv_search_confirmation_accepted = list(mode = mode, request_id = before$request_id))
         after <- f$ticket(mode)
         expect_false(identical(after$request_id, before$request_id))
         expect_identical(after$origin, 'external_alias')
@@ -241,10 +240,10 @@ test_that('stale confirmation and catalog acknowledgements cannot clear or retri
         if (mode == 'homologous') f$e$pendingHomoOrganismChange(pending) else f$e$pendingOrthoGeneChange(pending)
         b <- f$e$request_search_run(mode)
         if (mode == 'homologous') {
-            f$session$setInputs(confirm_homo_organism_change_btn = 1,
+            f$session$setInputs(cgv_search_confirmation_accepted = list(mode = mode, request_id = a$id),
                 catalog_multigene_ready = list(species_id = 'a', gene = 'a', request_id = a$id))
         } else {
-            f$session$setInputs(confirm_ortho_gene_change_btn = 1,
+            f$session$setInputs(cgv_search_confirmation_accepted = list(mode = mode, request_id = a$id),
                 catalog_cross_ready = list(species_ids = c('a', 'b'), gene = 'a', request_id = a$id))
         }
         expect_true(f$e$search_request_is_current(mode, b$id))
