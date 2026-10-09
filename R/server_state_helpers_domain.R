@@ -31,7 +31,8 @@ read_reactive_map_key <- function(map, key) {
 
 init_server_state_helpers_domain <- function(
     autocompleteBuildEpochs_rv,
-    searchRunState_rv
+    searchRunState_rv,
+    session_alive = function() TRUE
 ) {
     pending_session_source_restore <- shiny::reactiveVal(list(
         homologous = "",
@@ -96,12 +97,27 @@ init_server_state_helpers_domain <- function(
         }
     }
 
+    # IDs are session-local counters, never fingerprints or scientific cache keys.
+    next_search_id <- 0
+    pending_search_requests <- new.env(parent = emptyenv())
+    search_dispatches <- new.env(parent = emptyenv())
+    search_action_counts <- new.env(parent = emptyenv())
+    next_dispatch_id <- 0
+    search_mode <- function(mode) {
+        key <- tolower(trimws(as.character(mode %||% "")))
+        if (key %in% c("homologous", "orthologous")) key else "homologous"
+    }
+    new_search_id <- function() {
+        next_search_id <<- next_search_id + 1
+        paste0("search_", next_search_id)
+    }
     get_search_run_mode_state <- function(mode) {
         mode_key <- tolower(trimws(as.character(mode %||% "")))
         if (!mode_key %in% c("homologous", "orthologous")) {
             mode_key <- "homologous"
         }
-        st <- searchRunState_rv()
+        # Liveness must precede even a read of a destroyed session reactive.
+        st <- if (isTRUE(session_alive())) shiny::isolate(searchRunState_rv()) else list()
         if (!is.list(st)) st <- list()
         mode_st <- st[[mode_key]]
         if (!is.list(mode_st)) {
@@ -111,10 +127,68 @@ init_server_state_helpers_domain <- function(
         mode_st$last_fingerprint <- as.character(mode_st$last_fingerprint %||% "")
         mode_st$last_completed <- suppressWarnings(as.numeric(mode_st$last_completed %||% 0))
         if (!is.finite(mode_st$last_completed)) mode_st$last_completed <- 0
+        mode_st$id <- as.character(mode_st$id %||% "")
+        mode_st$status <- as.character(mode_st$status %||% "idle")
+        mode_st$children <- as.integer(mode_st$children %||% 0L)
         list(mode_key = mode_key, state = st, mode_state = mode_st)
     }
 
-    begin_search_run <- function(mode, fingerprint = "", duplicate_window_sec = 1.2) {
+    request_search_run <- function(mode) {
+        if (!isTRUE(session_alive())) return(list(ok = FALSE, reason = "closed"))
+        key <- search_mode(mode)
+        if (isTRUE(get_search_run_mode_state(key)$mode_state$active)) {
+            return(list(ok = FALSE, reason = "active", mode = key))
+        }
+        id <- new_search_id()
+        pending_search_requests[[key]] <- id
+        list(ok = TRUE, id = id, mode = key)
+    }
+    search_request_is_current <- function(mode, id) {
+        isTRUE(session_alive()) && nzchar(as.character(id %||% "")) &&
+            identical(pending_search_requests[[search_mode(mode)]], id)
+    }
+    cancel_search_request <- function(mode, id) {
+        if (!search_request_is_current(mode, id)) return(invisible(FALSE))
+        pending_search_requests[[search_mode(mode)]] <- NULL
+        invisible(TRUE)
+    }
+    get_search_request_id <- function(mode) {
+        if (!isTRUE(session_alive())) return(NULL)
+        pending_search_requests[[search_mode(mode)]]
+    }
+    prepare_search_dispatch <- function(mode, id) {
+        if (!search_request_is_current(mode, id)) return(NULL)
+        next_dispatch_id <<- next_dispatch_id + 1
+        ticket <- list(request_id = id, dispatch_id = next_dispatch_id)
+        search_dispatches[[search_mode(mode)]] <- ticket
+        ticket
+    }
+    take_search_event <- function(mode, action_count = 0, dispatch = NULL) {
+        if (!isTRUE(session_alive())) return(NULL)
+        key <- search_mode(mode)
+        previous <- search_action_counts[[key]] %||% 0
+        search_action_counts[[key]] <- action_count %||% 0
+        if (!identical(as.numeric(action_count %||% 0), as.numeric(previous)) &&
+            as.numeric(action_count %||% 0) > 0) {
+            request <- request_search_run(key)
+            return(if (isTRUE(request$ok)) request$id else NULL)
+        }
+        ticket <- search_dispatches[[key]]
+        if (!is.list(dispatch) || !is.list(ticket) ||
+            !identical(dispatch$request_id, ticket$request_id) ||
+            !identical(as.numeric(dispatch$dispatch_id), as.numeric(ticket$dispatch_id)) ||
+            !search_request_is_current(key, ticket$request_id)) return(NULL)
+        search_dispatches[[key]] <- NULL
+        ticket$request_id
+    }
+    owns_search_run <- function(mode, id, terminal = FALSE) {
+        if (!isTRUE(session_alive()) || !nzchar(as.character(id %||% ""))) return(FALSE)
+        current <- get_search_run_mode_state(mode)$mode_state
+        identical(current$id, id) && (identical(current$status, "running") ||
+            (isTRUE(terminal) && current$status %in% c("completed", "failed")))
+    }
+    begin_search_run <- function(mode, fingerprint = "", duplicate_window_sec = 1.2, request_id = NULL) {
+        if (!isTRUE(session_alive())) return(list(ok = FALSE, reason = "closed"))
         state_info <- get_search_run_mode_state(mode)
         mode_key <- state_info$mode_key
         st <- state_info$state
@@ -124,6 +198,9 @@ init_server_state_helpers_domain <- function(
         if (isTRUE(mode_st$active)) {
             return(list(ok = FALSE, reason = "active", mode = mode_key))
         }
+        if (!is.null(request_id) && !search_request_is_current(mode_key, request_id)) {
+            return(list(ok = FALSE, reason = "stale", mode = mode_key))
+        }
         if (nzchar(fp) && identical(fp, mode_st$last_fingerprint)) {
             dt <- now_num - as.numeric(mode_st$last_completed %||% 0)
             if (is.finite(dt) && dt >= 0 && dt < as.numeric(duplicate_window_sec %||% 1.2)) {
@@ -131,22 +208,109 @@ init_server_state_helpers_domain <- function(
             }
         }
         mode_st$active <- TRUE
-        mode_st$last_fingerprint <- fp
+        mode_st$id <- if (is.null(request_id)) new_search_id() else request_id
+        mode_st$status <- "running"
+        mode_st$fingerprint <- fp
+        mode_st$children <- 0L
+        mode_st$local_outcome <- NULL
+        mode_st$admission_completed_at <- NULL
+        pending_search_requests[[mode_key]] <- NULL
         st[[mode_key]] <- mode_st
         searchRunState_rv(st)
-        list(ok = TRUE, reason = "started", mode = mode_key)
+        list(ok = TRUE, reason = "started", mode = mode_key, id = mode_st$id)
     }
 
-    finish_search_run <- function(mode) {
+    finish_search_run <- function(mode, id, outcome = "completed") {
+        stopifnot(outcome %in% c("completed", "cancelled", "failed"))
+        if (!owns_search_run(mode, id)) return(invisible(FALSE))
         state_info <- get_search_run_mode_state(mode)
         mode_key <- state_info$mode_key
         st <- state_info$state
         mode_st <- state_info$mode_state
+        if (identical(outcome, "completed") && mode_st$children > 0L) return(invisible(FALSE))
         mode_st$active <- FALSE
-        mode_st$last_completed <- as.numeric(Sys.time())
+        mode_st$status <- outcome
+        if (identical(outcome, "completed")) {
+            mode_st$last_fingerprint <- mode_st$fingerprint
+            mode_st$last_completed <- mode_st$admission_completed_at %||% as.numeric(Sys.time())
+        }
+        if (identical(outcome, "cancelled")) {
+            # A cancelled retry must not inherit duplicate suppression for its query.
+            if (identical(mode_st$last_fingerprint, mode_st$fingerprint)) {
+                mode_st$last_fingerprint <- ""
+                mode_st$last_completed <- 0
+            }
+        }
         st[[mode_key]] <- mode_st
         searchRunState_rv(st)
         invisible(TRUE)
+    }
+    cancel_search_run <- function(mode, id) {
+        cancelled_request <- cancel_search_request(mode, id)
+        cancelled_run <- finish_search_run(mode, id, "cancelled")
+        invisible(isTRUE(cancelled_request) || isTRUE(cancelled_run))
+    }
+    # Local execution releases admission; an owned rescue can still be running.
+    release_search_admission <- function(mode, id, outcome = "completed") {
+        stopifnot(outcome %in% c("completed", "failed"))
+        if (!owns_search_run(mode, id)) return(invisible(FALSE))
+        info <- get_search_run_mode_state(mode)
+        current <- info$mode_state
+        if (!isTRUE(current$active)) return(invisible(FALSE))
+        if (identical(current$local_outcome, "failed")) outcome <- "failed"
+        if (current$children == 0L) return(finish_search_run(mode, id, outcome))
+        current$active <- FALSE
+        current$local_outcome <- outcome
+        if (identical(outcome, "completed")) {
+            # Preserve the existing duplicate window at local completion, even
+            # while rescue owns the still-running operation. This is admission
+            # bookkeeping, not a terminal success transition.
+            current$admission_completed_at <- as.numeric(Sys.time())
+            current$last_fingerprint <- current$fingerprint
+            current$last_completed <- current$admission_completed_at
+        }
+        info$state[[info$mode_key]] <- current
+        searchRunState_rv(info$state)
+        invisible(TRUE)
+    }
+    start_search_child <- function(mode, id) {
+        force(mode); force(id)
+        if (!owns_search_run(mode, id)) return(NULL)
+        info <- get_search_run_mode_state(mode)
+        info$mode_state$children <- info$mode_state$children + 1L
+        info$state[[info$mode_key]] <- info$mode_state
+        searchRunState_rv(info$state)
+        settled <- FALSE
+        function(outcome = "completed") {
+            if (settled) return(invisible(FALSE))
+            settled <<- TRUE
+            settle_search_child(mode, id, outcome)
+        }
+    }
+    settle_search_child <- function(mode, id, outcome = "completed") {
+        stopifnot(outcome %in% c("completed", "failed"))
+        if (!owns_search_run(mode, id)) return(invisible(FALSE))
+        info <- get_search_run_mode_state(mode)
+        current <- info$mode_state
+        if (current$children < 1L) return(invisible(FALSE))
+        current$children <- current$children - 1L
+        if (identical(outcome, "failed")) current$local_outcome <- "failed"
+        info$state[[info$mode_key]] <- current
+        searchRunState_rv(info$state)
+        if (current$children == 0L && !isTRUE(current$active)) {
+            finish_search_run(mode, id, current$local_outcome %||% "completed")
+        }
+        invisible(TRUE)
+    }
+    guard_search_continuation <- function(mode, id, callback, cleanup = function() NULL, terminal = FALSE) {
+        force(mode); force(id); force(callback); force(cleanup); force(terminal)
+        function(...) {
+            # Cleanup here must own only nonreactive resources. It runs even when
+            # the session is closed or the publishing callback is suppressed.
+            on.exit(cleanup(), add = TRUE)
+            if (!owns_search_run(mode, id, terminal = terminal)) return(invisible(NULL))
+            callback(...)
+        }
     }
 
     begin_session_source_restore <- function(panel, expected_key) {
@@ -249,6 +413,18 @@ init_server_state_helpers_domain <- function(
         get_search_run_mode_state = get_search_run_mode_state,
         begin_search_run = begin_search_run,
         finish_search_run = finish_search_run,
+        request_search_run = request_search_run,
+        search_request_is_current = search_request_is_current,
+        cancel_search_request = cancel_search_request,
+        get_search_request_id = get_search_request_id,
+        prepare_search_dispatch = prepare_search_dispatch,
+        take_search_event = take_search_event,
+        owns_search_run = owns_search_run,
+        cancel_search_run = cancel_search_run,
+        release_search_admission = release_search_admission,
+        start_search_child = start_search_child,
+        settle_search_child = settle_search_child,
+        guard_search_continuation = guard_search_continuation,
         begin_session_source_restore = begin_session_source_restore,
         consume_session_source_restore = consume_session_source_restore,
         finish_session_source_restore = finish_session_source_restore,

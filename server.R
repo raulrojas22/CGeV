@@ -4,6 +4,7 @@
     session_deferred <- make_session_deferred(session)
     session_later <- session_deferred$later
     session_guard <- session_deferred$guard
+    session_alive <- session_guard(function() TRUE)
 
     session_t0 <- app_perf_now()
     session_token <- as.character(session$token %||% "unknown")
@@ -1224,6 +1225,10 @@
     orthoExternalRescueState <- new.env(parent = emptyenv())
     orthoExternalRescueState$id <- ""
     cancel_orthologous_background_rescue <- function(reason = "user_action") {
+        current <- get_search_run_mode_state("orthologous")$mode_state
+        if (identical(current$status, "running")) cancel_search_operation("orthologous", current$id)
+        pending_id <- stateHelpersDomain$get_search_request_id("orthologous")
+        if (!is.null(pending_id)) cancel_search_operation("orthologous", pending_id)
         reason_txt <- tolower(trimws(as.character(reason %||% "user_action")))
         reason_txt <- gsub("[^a-z0-9_]+", "_", reason_txt)
         if (!nzchar(reason_txt)) {
@@ -1241,6 +1246,9 @@
     batchSearchMode <- reactiveVal("")
     batchSearchRemaining <- reactiveVal(0L)
     batchSearchQueue <- reactiveVal(character())
+    searchBatchOwner <- new.env(parent = emptyenv())
+    searchBatchOwner$generation <- 0
+    searchOperationBatch <- new.env(parent = emptyenv())
     homoBatchSummary <- reactiveVal(list(
         active = FALSE,
         total = 0L,
@@ -1276,33 +1284,6 @@
     pendingPreparedSearchHomo <- reactiveVal(NULL)
     pendingPreparedSearchOrtho <- reactiveVal(NULL)
     pendingPartialGeneAliasConfirmation <- reactiveVal(NULL)
-    forceExternalAliasNextSearch <- reactiveVal(list(homologous = character(0), orthologous = character(0)))
-    mark_external_alias_search_for_gene <- function(mode, gene) {
-        mode_txt <- tolower(trimws(as.character(mode %||% "")))
-        gene_txt <- tolower(trimws(as.character(gene %||% "")))
-        if (!mode_txt %in% c("homologous", "orthologous") || !nzchar(gene_txt)) {
-            return(invisible(FALSE))
-        }
-        state <- forceExternalAliasNextSearch()
-        state[[mode_txt]] <- unique(c(as.character(state[[mode_txt]] %||% character(0)), gene_txt))
-        forceExternalAliasNextSearch(state)
-        invisible(TRUE)
-    }
-    consume_external_alias_search_for_gene <- function(mode, gene) {
-        mode_txt <- tolower(trimws(as.character(mode %||% "")))
-        gene_txt <- tolower(trimws(as.character(gene %||% "")))
-        if (!mode_txt %in% c("homologous", "orthologous") || !nzchar(gene_txt)) {
-            return(FALSE)
-        }
-        state <- forceExternalAliasNextSearch()
-        pending <- as.character(state[[mode_txt]] %||% character(0))
-        hit <- gene_txt %in% pending
-        if (isTRUE(hit)) {
-            state[[mode_txt]] <- setdiff(pending, gene_txt)
-            forceExternalAliasNextSearch(state)
-        }
-        isTRUE(hit)
-    }
     # Organism-lock (homologous): tracks the species_id whose results are on screen
     lastConfirmedHomoSpeciesId <- reactiveVal("")
     lastConfirmedHomoDataMode <- reactiveVal("")
@@ -1334,7 +1315,8 @@
 
     stateHelpersDomain <- init_server_state_helpers_domain(
         autocompleteBuildEpochs_rv = autocompleteBuildEpochs,
-        searchRunState_rv = searchRunState
+        searchRunState_rv = searchRunState,
+        session_alive = function() isTRUE(session_alive())
     )
     parse_positive_int_env <- stateHelpersDomain$parse_positive_int_env
     get_autocomplete_epoch <- stateHelpersDomain$get_autocomplete_epoch
@@ -1344,6 +1326,116 @@
     get_search_run_mode_state <- stateHelpersDomain$get_search_run_mode_state
     begin_search_run <- stateHelpersDomain$begin_search_run
     finish_search_run <- stateHelpersDomain$finish_search_run
+    request_search_run <- function(mode) {
+        request <- stateHelpersDomain$request_search_run(mode)
+        if (identical(request$reason, "active")) {
+            context <- if (identical(mode, "orthologous")) "Cross-Species Gene Search" else "Multi-Gene Search"
+            emit_popup_status(context, "A gene search is already running. Please wait for it to finish.", tone = "info", clear = FALSE)
+        }
+        request
+    }
+    search_request_is_current <- stateHelpersDomain$search_request_is_current
+    owns_search_run <- stateHelpersDomain$owns_search_run
+    release_search_admission <- stateHelpersDomain$release_search_admission
+    start_search_child <- stateHelpersDomain$start_search_child
+    take_search_event <- function(mode, action_count, dispatch) {
+        id <- stateHelpersDomain$take_search_event(mode, action_count, dispatch)
+        if (is.null(id) && isTRUE(get_search_run_mode_state(mode)$mode_state$active)) {
+            context <- if (identical(mode, "orthologous")) "Cross-Species Gene Search" else "Multi-Gene Search"
+            emit_popup_status(context, "A gene search is already running. Please wait for it to finish.", tone = "info", clear = FALSE)
+        }
+        id
+    }
+    search_operation_guard <- function(mode, id, callback, cleanup = function() NULL, terminal = FALSE) {
+        force(callback)
+        stateHelpersDomain$guard_search_continuation(mode, id,
+            session_guard(function(...) shiny::isolate(callback(...))), cleanup, terminal)
+    }
+    search_future_promise <- function(mode, id, expr, ..., envir = parent.frame(),
+                                      queue = promises::future_promise_queue()) {
+        force(mode); force(id); force(envir)
+        expr <- substitute(expr)
+        force(list(...))
+        # Match future_promise's lazy capture and shared scheduling. The ownership
+        # check belongs at submission, when a formerly busy worker becomes free.
+        job <- future::future(expr, envir = envir, substitute = FALSE, ..., lazy = TRUE)
+        promises::promise(function(resolve, reject) {
+            queue$schedule_work(function() {
+                if (!owns_search_run(mode, id)) {
+                    resolve(NULL)
+                    return(promises::promise_resolve(NULL))
+                }
+                resolve(job)
+                job
+            })
+        })
+    }
+    # A deferred dispatch carries its original request through execute_*().
+    searchDispatchContext <- new.env(parent = emptyenv())
+    searchRequestPayload <- new.env(parent = emptyenv())
+    search_event_payload <- function(mode, request_id, gene) {
+        payload <- searchRequestPayload[[mode]]
+        if (is.list(payload) && identical(payload$id, request_id)) {
+            if (identical(payload$origin, "global_batch") &&
+                !identical(payload$batch_id, searchBatchOwner$generation)) {
+                stateHelpersDomain$cancel_search_request(mode, request_id)
+                return(NULL)
+            }
+            return(payload)
+        }
+        list(id = request_id, gene = gene, origin = "local")
+    }
+    bind_search_batch_owner <- function(mode, id, origin) {
+        if (!identical(origin, "global_batch")) {
+            searchBatchOwner$generation <- searchBatchOwner$generation + 1
+            batchSearchMode(""); batchSearchRemaining(0L); batchSearchQueue(character())
+            reset_homo_batch_summary()
+        }
+        generation <- searchBatchOwner$generation
+        searchOperationBatch[[mode]] <- list(id = id, generation = generation)
+        generation
+    }
+    schedule_search_dispatch <- function(mode, callback, delay = 0, request_id = NULL) {
+        if (is.null(request_id)) {
+            request <- request_search_run(mode)
+            if (!isTRUE(request$ok)) return(invisible(FALSE))
+            request_id <- request$id
+        }
+        if (!search_request_is_current(mode, request_id)) return(invisible(FALSE))
+        id <- request_id
+        dispatch <- session_guard(function() {
+            if (!search_request_is_current(mode, id)) return(invisible(NULL))
+            old <- searchDispatchContext[[mode]]
+            searchDispatchContext[[mode]] <- id
+            on.exit(searchDispatchContext[[mode]] <- old, add = TRUE)
+            callback()
+        })
+        if (delay > 0 && requireNamespace("later", quietly = TRUE)) {
+            session_later(dispatch, delay = delay)
+        } else dispatch()
+        invisible(TRUE)
+    }
+    # Internal only. This invalidates ownership, never committed results or workers.
+    cancel_search_operation <- function(mode, id) {
+        changed <- stateHelpersDomain$cancel_search_run(mode, id)
+        if (isTRUE(changed) && isTRUE(session_alive())) {
+            state <- preparation_state_for_mode(mode)
+            pending <- isolate(state$pending())
+            if (is.list(pending) && identical(pending$request_id, id)) state$pending(NULL)
+            batch <- searchOperationBatch[[mode]]
+            payload <- searchRequestPayload[[mode]]
+            if (is.list(payload) && identical(payload$id, id) && identical(payload$origin, "global_batch")) {
+                batch <- list(id = id, generation = payload$batch_id)
+            }
+            if (is.list(batch) && identical(batch$id, id) &&
+                identical(batch$generation, searchBatchOwner$generation)) {
+                searchBatchOwner$generation <- searchBatchOwner$generation + 1
+                batchSearchMode(""); batchSearchRemaining(0L); batchSearchQueue(character())
+                reset_homo_batch_summary()
+            }
+        }
+        invisible(changed)
+    }
     secondary_work_initial_delay_sec <- app_env_int(
         "APP_SECONDARY_WORK_INITIAL_DELAY_MS",
         2500L,
@@ -5729,6 +5821,8 @@
 
     invalidate_search_preparation <- function(mode, ready = TRUE) {
         state <- preparation_state_for_mode(mode)
+        pending <- isolate(state$pending())
+        if (is.list(pending)) stateHelpersDomain$cancel_search_request(mode, pending$request_id)
         current <- suppressWarnings(as.integer(isolate(state$token()) %||% 0L))
         if (!is.finite(current) || is.na(current)) current <- 0L
         next_token <- current + 1L
@@ -5917,7 +6011,8 @@
         invisible(TRUE)
     }
 
-    check_search_preparation_gate <- function(mode, gene = "", origin = "local") {
+    check_search_preparation_gate <- function(mode, gene = "", origin = "local", request_id) {
+        if (!search_request_is_current(mode, request_id)) return(FALSE)
         if (!isTRUE(fast_organism_sync_enabled())) {
             return(TRUE)
         }
@@ -5928,6 +6023,7 @@
         payload <- list(
             gene = trimws(as.character(gene %||% "")),
             origin = as.character(origin %||% "local"),
+            request_id = request_id,
             token = suppressWarnings(as.integer(isolate(state$token()) %||% 0L))
         )
         state$pending(payload)
@@ -14902,6 +14998,15 @@
     }
 
     set_batch_search_state <- function(mode = "", total = 0L) {
+        if (!isTRUE(session_alive())) return(invisible(FALSE))
+        if (any(vapply(isolate(searchRunState()), function(x) isTRUE(x$active), logical(1)))) {
+            return(invisible(FALSE))
+        }
+        searchBatchOwner$generation <- searchBatchOwner$generation + 1
+        for (panel in c("homologous", "orthologous")) {
+            pending_id <- stateHelpersDomain$get_search_request_id(panel)
+            if (!is.null(pending_id)) stateHelpersDomain$cancel_search_request(panel, pending_id)
+        }
         mode_txt <- tolower(trimws(as.character(mode %||% "")))
         if (!mode_txt %in% c("homologous", "orthologous")) {
             mode_txt <- ""
@@ -14935,13 +15040,26 @@
         next_gene
     }
 
-    dispatch_next_batch_search <- function(mode = "", delay_sec = 0.08) {
+    dispatch_next_batch_search <- function(mode = "", delay_sec = 0.08,
+                                           batch_id = searchBatchOwner$generation, operation_id = NULL) {
+        force(batch_id); force(operation_id)
         mode_txt <- tolower(trimws(as.character(mode %||% "")))
         if (!mode_txt %in% c("homologous", "orthologous")) {
             return(invisible(FALSE))
         }
 
         dispatch <- function() {
+            if (!isTRUE(session_alive()) || !identical(batch_id, searchBatchOwner$generation)) return(invisible(FALSE))
+            if (!is.null(operation_id) && !owns_search_run(mode_txt, operation_id, terminal = TRUE)) return(invisible(FALSE))
+            # A newer browser/preparation request gets admission first. Do not
+            # consume the batch queue or overwrite its inputs while it is pending.
+            pending_request <- any(vapply(c("homologous", "orthologous"), function(panel) {
+                !is.null(stateHelpersDomain$get_search_request_id(panel))
+            }, logical(1)))
+            if (pending_request) {
+                session_later(dispatch, delay = secondary_work_retry_delay_sec)
+                return(invisible(FALSE))
+            }
             next_gene <- trimws(as.character(take_next_batch_gene() %||% ""))
             if (!nzchar(next_gene)) {
                 batchSearchMode("")
@@ -14977,6 +15095,8 @@
     }
 
     queue_global_batch_search <- function(genes, target_mode = "homologous") {
+        if (!isTRUE(session_alive())) return(invisible(FALSE))
+        if (any(vapply(isolate(searchRunState()), function(x) isTRUE(x$active), logical(1)))) return(invisible(FALSE))
         q <- trimws(as.character(genes %||% character(0)))
         q <- q[nzchar(q)]
         if (length(q) == 0L) {
@@ -15000,7 +15120,12 @@
         invisible(TRUE)
     }
 
-    finalize_search_cleanup <- function(mode = "") {
+    finalize_search_cleanup <- function(mode, operation_id, batch_id) {
+        if (!owns_search_run(mode, operation_id) ||
+            !identical(batch_id, searchBatchOwner$generation)) return(invisible(FALSE))
+        previous <- searchOperationBatch[[mode]]
+        if (is.list(previous) && identical(previous$id, operation_id) && isTRUE(previous$cleaned)) return(invisible(FALSE))
+        searchOperationBatch[[mode]] <- list(id = operation_id, generation = batch_id, cleaned = TRUE)
         mode_txt <- tolower(trimws(as.character(mode %||% "")))
         active_mode <- tolower(trimws(as.character(batchSearchMode() %||% "")))
         remaining <- suppressWarnings(as.integer(batchSearchRemaining() %||% 0L))
@@ -15041,13 +15166,24 @@
                 clear_all_gene_search_inputs()
                 return(invisible(NULL))
             }
-            dispatch_next_batch_search(mode_txt, delay_sec = 0.10)
+            dispatch_next_batch_search(mode_txt, delay_sec = 0.10,
+                                       batch_id = batch_id, operation_id = operation_id)
         }
         invisible(NULL)
     }
 
-    execute_homologous_search <- function(gene_override = NULL, origin = "local") {
+    execute_homologous_search <- function(gene_override = NULL, origin = "local", request_id = searchDispatchContext$homologous) {
+        if (is.null(request_id)) {
+            request <- request_search_run("homologous")
+            if (!isTRUE(request$ok)) return(invisible(FALSE))
+            request_id <- request$id
+        }
+        if (is.null(search_event_payload("homologous", request_id, ""))) return(invisible(FALSE))
+        ticket <- stateHelpersDomain$prepare_search_dispatch("homologous", request_id)
+        if (is.null(ticket)) return(invisible(FALSE))
         gene_txt <- trimws(as.character(gene_override %||% ""))
+        if (!nzchar(gene_txt)) gene_txt <- trimws(as.character(isolate(input$filter1) %||% ""))
+        searchRequestPayload$homologous <- list(id = request_id, gene = gene_txt, origin = origin, batch_id = searchBatchOwner$generation)
         pendingHomoSearchOrigin(as.character(origin %||% "local"))
         if (nzchar(gene_txt)) {
             pendingHomoSearchGene(gene_txt)
@@ -15055,12 +15191,28 @@
         } else {
             pendingHomoSearchGene(NULL)
         }
-        session$sendCustomMessage("cgv_trigger_homo_search", list(origin = as.character(origin %||% "local")))
+        session$sendCustomMessage("cgv_trigger_homo_search", c(ticket, list(origin = as.character(origin %||% "local"))))
         invisible(TRUE)
     }
 
-    execute_orthologous_search <- function(gene_override = NULL, origin = "local") {
+    execute_orthologous_search <- function(gene_override = NULL, origin = "local", request_id = searchDispatchContext$orthologous) {
+        if (is.null(request_id)) {
+            request <- request_search_run("orthologous")
+            if (!isTRUE(request$ok)) return(invisible(FALSE))
+            request_id <- request$id
+        }
+        if (is.null(search_event_payload("orthologous", request_id, ""))) return(invisible(FALSE))
+        ticket <- stateHelpersDomain$prepare_search_dispatch("orthologous", request_id)
+        if (is.null(ticket)) return(invisible(FALSE))
         gene_txt <- trimws(as.character(gene_override %||% ""))
+        if (!nzchar(gene_txt)) gene_txt <- trimws(as.character(isolate(input$gene_name) %||% ""))
+        previous_payload <- searchRequestPayload$orthologous
+        reference_anchor <- if (is.list(previous_payload) && identical(previous_payload$id, request_id)) {
+            previous_payload$reference_anchor
+        } else isolate(pendingOrthoReferenceAnchor())
+        searchRequestPayload$orthologous <- list(id = request_id, gene = gene_txt, origin = origin,
+            batch_id = searchBatchOwner$generation, reference_anchor = reference_anchor)
+        pendingOrthoReferenceAnchor(NULL)
         pendingOrthoSearchOrigin(as.character(origin %||% "local"))
         if (nzchar(gene_txt)) {
             pendingOrthoSearchGene(gene_txt)
@@ -15068,7 +15220,7 @@
         } else {
             pendingOrthoSearchGene(NULL)
         }
-        session$sendCustomMessage("cgv_trigger_ortho_search", list(origin = as.character(origin %||% "local")))
+        session$sendCustomMessage("cgv_trigger_ortho_search", c(ticket, list(origin = as.character(origin %||% "local"))))
         invisible(TRUE)
     }
 
@@ -15146,7 +15298,7 @@
             invisible(TRUE)
         }
         if (!identical(active_panel, source_panel) && requireNamespace("later", quietly = TRUE)) {
-            session_later(dispatch_neighbor_search, delay = 0.08)
+            schedule_search_dispatch(source_panel, dispatch_neighbor_search, delay = 0.08)
         } else {
             dispatch_neighbor_search()
         }
@@ -15157,6 +15309,10 @@
         if (!isTRUE(searchPreparationReadyHomo())) return(invisible(NULL))
         pending <- isolate(pendingPreparedSearchHomo())
         if (!is.list(pending)) return(invisible(NULL))
+        if (!search_request_is_current("homologous", pending$request_id)) {
+            pendingPreparedSearchHomo(NULL)
+            return(invisible(NULL))
+        }
         if (!identical(
             suppressWarnings(as.integer(pending$token %||% NA_integer_)),
             suppressWarnings(as.integer(isolate(searchPreparationTokenHomo()) %||% NA_integer_))
@@ -15167,7 +15323,7 @@
         pendingPreparedSearchHomo(NULL)
         execute_homologous_search(
             gene_override = as.character(pending$gene %||% ""),
-            origin = as.character(pending$origin %||% "queued")
+            origin = as.character(pending$origin %||% "queued"), request_id = pending$request_id
         )
         invisible(NULL)
     }, ignoreInit = TRUE)
@@ -15190,6 +15346,10 @@
         if (!isTRUE(searchPreparationReadyOrtho())) return(invisible(NULL))
         pending <- isolate(pendingPreparedSearchOrtho())
         if (!is.list(pending)) return(invisible(NULL))
+        if (!search_request_is_current("orthologous", pending$request_id)) {
+            pendingPreparedSearchOrtho(NULL)
+            return(invisible(NULL))
+        }
         if (!identical(
             suppressWarnings(as.integer(pending$token %||% NA_integer_)),
             suppressWarnings(as.integer(isolate(searchPreparationTokenOrtho()) %||% NA_integer_))
@@ -15200,7 +15360,7 @@
         pendingPreparedSearchOrtho(NULL)
         execute_orthologous_search(
             gene_override = as.character(pending$gene %||% ""),
-            origin = as.character(pending$origin %||% "queued")
+            origin = as.character(pending$origin %||% "queued"), request_id = pending$request_id
         )
         invisible(NULL)
     }, ignoreInit = TRUE)
@@ -15477,21 +15637,24 @@
         species_id <- trimws(as.character(payload$species_id %||% ""))
         gene <- trimws(as.character(payload$gene %||% ""))
         if (!nzchar(species_id) || !nzchar(gene)) return(invisible(NULL))
+        request <- request_search_run("homologous")
+        if (!isTRUE(request$ok)) return(invisible(NULL))
         updateTabsetPanel(session, "navtabs", selected = "homologous")
         updateRadioButtons(session, "homo_data_mode", selected = "preloaded")
         updateTextInput(session, "filter1", value = gene)
-        launch <- function() session$sendCustomMessage("cgv:catalog-open-multigene", list(species_id = species_id, gene = gene))
-        if (requireNamespace("later", quietly = TRUE)) session_later(launch, delay = 0.12) else launch()
+        launch <- function() session$sendCustomMessage("cgv:catalog-open-multigene", list(species_id = species_id, gene = gene, request_id = searchDispatchContext$homologous))
+        schedule_search_dispatch("homologous", launch, delay = 0.12, request_id = request$id)
         invisible(TRUE)
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
 
     observeEvent(input$catalog_multigene_ready, {
         payload <- input$catalog_multigene_ready %||% list()
+        if (!search_request_is_current("homologous", payload$request_id)) return(invisible(NULL))
         species_id <- trimws(as.character(payload$species_id %||% ""))
         gene <- trimws(as.character(payload$gene %||% ""))
         if (!nzchar(species_id) || !nzchar(gene)) return(invisible(NULL))
         updateTextInput(session, "filter1", value = gene)
-        execute_homologous_search(gene_override = gene, origin = "gene_catalog")
+        execute_homologous_search(gene_override = gene, origin = "gene_catalog", request_id = payload$request_id)
         invisible(TRUE)
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
 
@@ -15507,16 +15670,19 @@
         }
         species_ids <- unique(as.character(chosen$organism_id))
         gene <- trimws(as.character(isolate(catalogSearchLastTerm()) %||% ""))
+        request <- request_search_run("orthologous")
+        if (!isTRUE(request$ok)) return(invisible(NULL))
         updateTabsetPanel(session, "navtabs", selected = "orthologous")
         updateRadioButtons(session, "ortho_data_mode", selected = "preloaded")
         updateTextInput(session, "gene_name", value = gene)
-        launch <- function() session$sendCustomMessage("cgv:catalog-open-cross", list(species_ids = species_ids, gene = gene))
-        if (requireNamespace("later", quietly = TRUE)) session_later(launch, delay = 0.12) else launch()
+        launch <- function() session$sendCustomMessage("cgv:catalog-open-cross", list(species_ids = species_ids, gene = gene, request_id = searchDispatchContext$orthologous))
+        schedule_search_dispatch("orthologous", launch, delay = 0.12, request_id = request$id)
         invisible(TRUE)
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
 
     observeEvent(input$catalog_cross_ready, {
         payload <- input$catalog_cross_ready %||% list()
+        if (!search_request_is_current("orthologous", payload$request_id)) return(invisible(NULL))
         gene <- trimws(as.character(payload$gene %||% ""))
         species_ids <- unique(trimws(as.character(payload$species_ids %||% character(0))))
         if (!nzchar(gene) || length(species_ids) < 2L) return(invisible(NULL))
@@ -15526,7 +15692,7 @@
             tone = "info",
             clear = TRUE
         )
-        execute_orthologous_search(gene_override = gene, origin = "gene_catalog")
+        execute_orthologous_search(gene_override = gene, origin = "gene_catalog", request_id = payload$request_id)
         invisible(TRUE)
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
     }
@@ -15566,10 +15732,9 @@
             return(invisible(NULL))
         }
 
-        updateTabsetPanel(session, "navtabs", selected = target_mode)
-
         is_batch <- length(query_batch) > 1L
-        set_batch_search_state(target_mode, length(query_batch))
+        if (identical(set_batch_search_state(target_mode, length(query_batch)), FALSE)) return(invisible(NULL))
+        updateTabsetPanel(session, "navtabs", selected = target_mode)
         first_query <- as.character(query_batch[1] %||% "")
         updateTextInput(session, "global_search_query", value = first_query)
         updateTextInput(session, "global_search_query_collapsed", value = first_query)
@@ -15619,7 +15784,7 @@
         needs_tab_settle <- !identical(as.character(active_panel %||% ""), as.character(target_mode %||% ""))
         delay_dispatch <- if (isTRUE(needs_tab_settle)) 0.08 else 0
         if (requireNamespace("later", quietly = TRUE) && delay_dispatch > 0) {
-            session_later(dispatch_single, delay = delay_dispatch)
+            schedule_search_dispatch(target_mode, dispatch_single, delay = delay_dispatch)
         } else {
             dispatch_single()
         }
@@ -15650,13 +15815,11 @@
             }
 
             if (identical(mode_txt, "orthologous")) {
-                updateTextInput(session, "gene_name", value = gene_txt)
                 execute_orthologous_search(gene_override = gene_txt, origin = "enter")
                 return(invisible(TRUE))
             }
 
             if (identical(mode_txt, "homologous")) {
-                updateTextInput(session, "filter1", value = gene_txt)
                 execute_homologous_search(gene_override = gene_txt, origin = "enter")
                 return(invisible(TRUE))
             }
@@ -15761,8 +15924,6 @@
             queue_global_batch_search(genes, target_mode = "homologous")
         } else {
             first_gene <- genes[[1]]
-            display_gene <- trimws(as.character(items[[1]]$gene %||% first_gene))
-            updateTextInput(session, "filter1", value = if (nzchar(display_gene)) display_gene else first_gene)
             execute_homologous_search(gene_override = first_gene, origin = "suggestion")
         }
         invisible(TRUE)
@@ -15871,6 +16032,8 @@
             if (identical(mode_txt, "orthologous")) {
                 first_gene <- genes[[1]]
                 original_query <- trimws(as.character(payload$query %||% first_gene))
+                request <- request_search_run("orthologous")
+                if (!isTRUE(request$ok)) return(invisible(NULL))
                 pendingOrthoReferenceAnchor(list(
                     local_gene_id = trimws(as.character(payload$local_gene_id %||% first_gene)),
                     organism_id = trimws(as.character(payload$organism_id %||% "")),
@@ -15879,7 +16042,7 @@
                 ))
                 execute_orthologous_search(
                     gene_override = if (nzchar(original_query)) original_query else first_gene,
-                    origin = "orthology_reference"
+                    origin = "orthology_reference", request_id = request$id
                 )
             } else if (length(genes) > 1L) {
                 genes <- genes[seq_len(min(length(genes), 24L))]
@@ -15887,9 +16050,7 @@
                 queue_global_batch_search(genes, target_mode = "homologous")
             } else {
                 first_gene <- genes[[1]]
-                pendingHomoSearchGene(first_gene)
-                updateTextInput(session, "filter1", value = first_gene)
-                session$sendCustomMessage("cgv_trigger_homo_search", list(gene = first_gene))
+                execute_homologous_search(gene_override = first_gene, origin = "suggestion")
             }
         },
         ignoreInit = TRUE
@@ -15903,16 +16064,17 @@
             if (!mode_txt %in% c("homologous", "orthologous") || !nzchar(gene_txt)) {
                 return(invisible(NULL))
             }
+            request <- request_search_run(mode_txt)
+            if (!isTRUE(request$ok)) return(invisible(NULL))
             removeModal()
-            mark_external_alias_search_for_gene(mode_txt, gene_txt)
             if (identical(mode_txt, "orthologous")) {
                 pendingOrthoSearchGene(gene_txt)
                 updateTextInput(session, "gene_name", value = gene_txt)
-                session$sendCustomMessage("cgv_trigger_ortho_search", list(gene = gene_txt, external_alias = TRUE))
+                execute_orthologous_search(gene_override = gene_txt, origin = "external_alias", request_id = request$id)
             } else {
                 pendingHomoSearchGene(gene_txt)
                 updateTextInput(session, "filter1", value = gene_txt)
-                session$sendCustomMessage("cgv_trigger_homo_search", list(gene = gene_txt, external_alias = TRUE))
+                execute_homologous_search(gene_override = gene_txt, origin = "external_alias", request_id = request$id)
             }
         },
         ignoreInit = TRUE
@@ -16025,8 +16187,10 @@
     # Gene-lock (ortho): user confirmed clearing existing results to search a different gene
     observeEvent(input$confirm_ortho_gene_change_btn,
         {
+            pending <- pendingOrthoGeneChange()
+            if (!is.list(pending) || !search_request_is_current("orthologous", pending$request_id)) return(invisible(NULL))
             removeModal()
-            gene <- as.character(pendingOrthoGeneChange() %||% "")
+            gene <- as.character(pending$gene %||% "")
             pendingOrthoGeneChange(NULL)
             if (!nzchar(gene)) return(invisible(NULL))
             # Clear orthologous visualizations, reset gene lock, then retrigger search
@@ -16034,16 +16198,28 @@
             run_clear_selected_visualizations(active_panel = "orthologous", include_other = FALSE)
             lastOrthoSearchedGene("")
             pendingOrthoSearchGene(gene)
-            session$sendCustomMessage("cgv_trigger_ortho_search", list())
+            execute_orthologous_search(gene_override = gene,
+                origin = if (identical(pending$origin, "external_alias")) "external_alias" else "confirmation")
         },
         ignoreInit = TRUE
     )
 
+    observeEvent(input$cgv_search_confirmation_closed, {
+        payload <- input$cgv_search_confirmation_closed %||% list()
+        mode <- as.character(payload$mode %||% "")
+        request_id <- as.character(payload$request_id %||% "")
+        if (mode %in% c("homologous", "orthologous") && search_request_is_current(mode, request_id)) {
+            cancel_search_operation(mode, request_id)
+        }
+    }, ignoreInit = TRUE)
+
     # Organism-lock (homo): user confirmed clearing existing results to continue with new organism
     observeEvent(input$confirm_homo_organism_change_btn,
         {
+            pending <- pendingHomoOrganismChange()
+            if (!is.list(pending) || !search_request_is_current("homologous", pending$request_id)) return(invisible(NULL))
             removeModal()
-            gene <- as.character(pendingHomoOrganismChange() %||% "")
+            gene <- as.character(pending$gene %||% "")
             pendingHomoOrganismChange(NULL)
             if (!nzchar(gene)) return(invisible(NULL))
             # Clear homologous visualizations, then retrigger search with the stored gene
@@ -16051,7 +16227,8 @@
             lastConfirmedHomoSpeciesId("")
             lastConfirmedHomoDataMode("")
             pendingHomoSearchGene(gene)
-            session$sendCustomMessage("cgv_trigger_homo_search", list())
+            execute_homologous_search(gene_override = gene,
+                origin = if (identical(pending$origin, "external_alias")) "external_alias" else "confirmation")
         },
         ignoreInit = TRUE
     )
@@ -18016,24 +18193,24 @@
             })
 
             # Generar Visualización Homólogos
-            homo_search_obs <- observeEvent(input[[paste0("generate", i)]], {
-                gate_gene <- trimws(as.character(pendingHomoSearchGene() %||% isolate(input[[paste0("filter", i)]]) %||% ""))
-                gate_origin <- as.character(pendingHomoSearchOrigin() %||% "local")
-                if (!isTRUE(check_search_preparation_gate("homologous", gene = gate_gene, origin = gate_origin))) {
+            homo_search_obs <- observeEvent(list(input[[paste0("generate", i)]], input$cgv_homo_search_dispatch), {
+                request_id <- take_search_event("homologous", input[[paste0("generate", i)]], input$cgv_homo_search_dispatch)
+                if (is.null(request_id)) return(invisible(NULL))
+                request_retained <- FALSE
+                on.exit(if (!request_retained) stateHelpersDomain$cancel_search_request("homologous", request_id), add = TRUE)
+                payload <- search_event_payload("homologous", request_id, isolate(input[[paste0("filter", i)]]) %||% "")
+                if (is.null(payload)) return(invisible(NULL))
+                gate_gene <- trimws(as.character(payload$gene %||% ""))
+                gate_origin <- as.character(payload$origin %||% "local")
+                if (!isTRUE(check_search_preparation_gate("homologous", gene = gate_gene, origin = gate_origin, request_id = request_id))) {
+                    request_retained <- TRUE
                     pendingHomoSearchGene(NULL)
                     pendingHomoSearchOrigin("local")
                     return(invisible(NULL))
                 }
                 pendingHomoSearchOrigin("local")
                 perf_run <- app_perf_new_run("HOMO_SEARCH")
-                # Guard: only reset if value differs to avoid premature renderUI invalidation
-                if (!identical(as.integer(homoVisibleCount()), as.integer(homoInitialVisibleCount))) {
-                    homoVisibleCount(homoInitialVisibleCount)
-                }
-                set_popup_loading(TRUE, context = "Multi-Gene Search", text = "Preparing request...")
-                on.exit(set_popup_loading(FALSE, context = "Multi-Gene Search"), add = TRUE)
-                on.exit(finalize_search_cleanup("homologous"), add = TRUE)
-                pending_gene <- trimws(as.character(pendingHomoSearchGene() %||% ""))
+                pending_gene <- gate_gene
                 pendingHomoSearchGene(NULL)
                 filter_text <- if (nzchar(pending_gene)) {
                     pending_gene
@@ -18046,7 +18223,6 @@
                     emit_popup_status("Multi-Gene Search", final_msg, tone = "warning", clear = TRUE)
                     return(invisible(NULL))
                 }
-                force_external_alias_lookup <- consume_external_alias_search_for_gene("homologous", filter_text)
                 # Organism-lock: if results exist and user changed organism, ask confirmation
                 # (skip in batch mode, which intentionally chains multiple calls)
                 # Detects changes between: preloaded organisms, upload↔preloaded, or different uploads
@@ -18068,7 +18244,8 @@
                         }
                     }
                     if (isTRUE(organism_changed)) {
-                        pendingHomoOrganismChange(filter_text)
+                        pendingHomoOrganismChange(list(gene = filter_text, request_id = request_id, origin = gate_origin))
+                        request_retained <- TRUE
                         set_popup_loading(FALSE, context = "Multi-Gene Search")
                         close_popup_status(clear = TRUE)
                         showModal(build_app_confirmation_modal(
@@ -18081,6 +18258,7 @@
                                     class = "app-confirmation-modal-text",
                                     "You already have results loaded from a different organism."
                                 ),
+                                tags$span(style = "display:none", `data-cgv-search-mode` = "homologous", `data-cgv-search-request` = request_id),
                                 tags$p(
                                     class = "app-confirmation-modal-text",
                                     "Generating results for a different organism in the same view may lead to an ambiguous interpretation."
@@ -18105,7 +18283,7 @@
                 search_gate <- begin_search_run(
                     "homologous",
                     fingerprint = paste("gene", tolower(filter_text), sep = "::"),
-                    duplicate_window_sec = duplicate_window
+                    request_id = request_id, duplicate_window_sec = duplicate_window
                 )
                 if (!isTRUE(search_gate$ok)) {
                     busy_msg <- if (identical(as.character(search_gate$reason %||% ""), "duplicate")) {
@@ -18117,9 +18295,25 @@
                     emit_popup_status("Multi-Gene Search", busy_msg, tone = "info", clear = TRUE)
                     return(invisible(NULL))
                 }
+                operation_id <- search_gate$id
+                operation_batch_id <- searchBatchOwner$generation
+                operation_outcome <- "failed"
+                on.exit({
+                    if (owns_search_run("homologous", operation_id)) {
+                        tryCatch({
+                            set_popup_loading(FALSE, context = "Multi-Gene Search")
+                            finalize_search_cleanup("homologous", operation_id, operation_batch_id)
+                        }, finally = release_search_admission("homologous", operation_id, operation_outcome))
+                    }
+                }, add = TRUE)
+                operation_batch_id <- bind_search_batch_owner("homologous", operation_id, gate_origin)
                 start_plot_timing_tracker(homoPlotTimingTracker, perf_run, context = "HOMO_TIMING")
                 app_perf_mark(perf_run, "click generate", "HOMO")
-                on.exit(finish_search_run("homologous"), add = TRUE)
+                if (!identical(as.integer(homoVisibleCount()), as.integer(homoInitialVisibleCount))) {
+                    homoVisibleCount(homoInitialVisibleCount)
+                }
+                set_popup_loading(TRUE, context = "Multi-Gene Search", text = "Preparing request...")
+                force_external_alias_lookup <- identical(gate_origin, "external_alias")
                 cancel_autocomplete_background("filter1")
                 # Confirm organism: register whichever organism/mode is now active
                 lastConfirmedHomoDataMode(as.character(isolate(input$homo_data_mode) %||% ""))
@@ -18291,6 +18485,8 @@
                     perf_context = "HOMO_LOOKUP",
                     allow_partial_suggestions = !isTRUE(force_external_alias_lookup)
                 )
+                if (!owns_search_run("homologous", operation_id)) return(invisible(NULL))
+                operation_outcome <- "completed"
                 data_n <- if (is.null(lookup$data)) 0L else nrow(lookup$data)
                 app_perf_mark(perf_run, sprintf("lookup done rows=%d", as.integer(data_n)), "HOMO")
                 app_perf_mark_ms(perf_run, "lookup_total_ms", app_perf_elapsed_ms(lookup_total_t0_h), "HOMO")
@@ -18746,6 +18942,7 @@
 
                 final_msg <- as.character(result$message %||% "Visualization finished.")
                 final_tone <- as.character(result$tone %||% classify_popup_tone(final_msg))
+                if (identical(final_tone, "error")) operation_outcome <- "failed"
                 if (identical(final_tone, "success")) {
                     record_homo_batch_result(filter_text, status = "plotted")
                 } else if (grepl("already plotted|already plotted in|is already plotted", final_msg, ignore.case = TRUE, perl = TRUE)) {
@@ -18768,38 +18965,22 @@
     })
 
     # Búsqueda Ortólogos (estable, sin exportar globals pesados a workers)
-		    ortho_search_obs <- observeEvent(input$search_gene, {
-                gate_gene <- trimws(as.character(pendingOrthoSearchGene() %||% isolate(input$gene_name) %||% ""))
-                gate_origin <- as.character(pendingOrthoSearchOrigin() %||% "local")
-                if (!isTRUE(check_search_preparation_gate("orthologous", gene = gate_gene, origin = gate_origin))) {
+		    ortho_search_obs <- observeEvent(list(input$search_gene, input$cgv_ortho_search_dispatch), {
+                request_id <- take_search_event("orthologous", input$search_gene, input$cgv_ortho_search_dispatch)
+                if (is.null(request_id)) return(invisible(NULL))
+                request_retained <- FALSE
+                on.exit(if (!request_retained) stateHelpersDomain$cancel_search_request("orthologous", request_id), add = TRUE)
+                payload <- search_event_payload("orthologous", request_id, isolate(input$gene_name) %||% "")
+                if (is.null(payload)) return(invisible(NULL))
+                gate_gene <- trimws(as.character(payload$gene %||% ""))
+                gate_origin <- as.character(payload$origin %||% "local")
+                if (!isTRUE(check_search_preparation_gate("orthologous", gene = gate_gene, origin = gate_origin, request_id = request_id))) {
+                    request_retained <- TRUE
                     pendingOrthoSearchGene(NULL)
                     pendingOrthoSearchOrigin("local")
                     return(invisible(NULL))
                 }
                 pendingOrthoSearchOrigin("local")
-		        ortho_timing_search_start <<- Sys.time()
-		        message(sprintf("[ORTHO_TIMING] === SEARCH START at %s ===", format(ortho_timing_search_start, "%H:%M:%OS3")))
-		        perf_run <- app_perf_new_run("ORTHO_SEARCH")
-		        orthology_verification_required <- isTRUE(cross_species_requires_verified_orthology())
-		        app_perf_mark(
-		            perf_run,
-		            sprintf("orthology policy=%s", if (orthology_verification_required) "verified_compara" else "local_matches"),
-		            "ORTHO"
-		        )
-		        orthoExternalRescueState$id <- paste0("cancel_", as.integer(Sys.time()), "_", sample.int(1000000L, 1))
-	        reset_ortho_organism_lookup_status()
-	        ortho_async_search <- FALSE
-	        cancel_ortho_auto_render_queue()
-	        # Guard: only reset if value differs to avoid premature renderUI invalidation
-        if (!identical(as.integer(orthoVisibleCount()), as.integer(orthoInitialVisibleCount))) {
-            orthoVisibleCount(orthoInitialVisibleCount)
-        }
-        set_popup_loading(TRUE, context = "Cross-Species Gene Search", text = "Preparing request...")
-        on.exit(if (!isTRUE(ortho_async_search)) set_popup_loading(FALSE, context = "Cross-Species Gene Search"), add = TRUE)
-        on.exit(if (!isTRUE(ortho_async_search)) finalize_search_cleanup("orthologous"), add = TRUE)
-
-        searchStatusOrthologous("Preparing request...")
-
         source_mode <- input$ortho_data_mode %||% "upload"
         files <- character(0)
         file_names <- character(0)
@@ -18981,7 +19162,7 @@
             return(invisible(NULL))
         }
 
-        pending_gene <- trimws(as.character(pendingOrthoSearchGene() %||% ""))
+        pending_gene <- gate_gene
         pendingOrthoSearchGene(NULL)
         gene_name <- if (nzchar(pending_gene)) pending_gene else trimws(as.character(input$gene_name %||% ""))
         if (!nzchar(gene_name)) {
@@ -18990,7 +19171,7 @@
             emit_popup_status("Cross-Species Gene Search", final_msg, tone = "warning", clear = TRUE)
             return(invisible(NULL))
         }
-        force_external_alias_lookup <- consume_external_alias_search_for_gene("orthologous", gene_name)
+        force_external_alias_lookup <- identical(gate_origin, "external_alias")
         if (!isTRUE(force_external_alias_lookup) &&
             !identical(gate_origin, "suggestion") &&
             is_low_specific_gene_family_query(gene_name)) {
@@ -19058,7 +19239,8 @@
             !isTRUE(is_batch_ortho_check) &&
             nzchar(last_gene) &&
             !identical(tolower(trimws(gene_name)), tolower(trimws(last_gene)))) {
-            pendingOrthoGeneChange(gene_name)
+            pendingOrthoGeneChange(list(gene = gene_name, request_id = request_id, origin = gate_origin))
+            request_retained <- TRUE
             set_popup_loading(FALSE, context = "Cross-Species Gene Search")
             close_popup_status(clear = TRUE)
             showModal(build_app_confirmation_modal(
@@ -19067,6 +19249,7 @@
                 tone = "warning",
                 title_icon = "dna",
                 body = tagList(
+                    tags$span(style = "display:none", `data-cgv-search-mode` = "orthologous", `data-cgv-search-request` = request_id),
                     tags$p(
                         class = "app-confirmation-modal-text",
                         "You currently have cross-species comparison results for gene ",
@@ -19093,7 +19276,6 @@
             return(invisible(NULL))
         }
         # Register the gene being searched now
-        lastOrthoSearchedGene(gene_name)
         is_batch_ortho <- identical(
             tolower(trimws(as.character(batchSearchMode() %||% ""))),
             "orthologous"
@@ -19102,7 +19284,7 @@
         search_gate <- begin_search_run(
             "orthologous",
             fingerprint = paste("gene", tolower(gene_name), sep = "::"),
-            duplicate_window_sec = duplicate_window
+            request_id = request_id, duplicate_window_sec = duplicate_window
         )
         if (!isTRUE(search_gate$ok)) {
             busy_msg <- if (identical(as.character(search_gate$reason %||% ""), "duplicate")) {
@@ -19114,9 +19296,30 @@
             emit_popup_status("Cross-Species Gene Search", busy_msg, tone = "info", clear = TRUE)
             return(invisible(NULL))
         }
+        operation_id <- search_gate$id
+        operation_batch_id <- searchBatchOwner$generation
+        operation_outcome <- "failed"
+        ortho_async_search <- FALSE
+        on.exit({
+            if (!isTRUE(ortho_async_search) && owns_search_run("orthologous", operation_id)) {
+                tryCatch({
+                    set_popup_loading(FALSE, context = "Cross-Species Gene Search")
+                    finalize_search_cleanup("orthologous", operation_id, operation_batch_id)
+                }, finally = release_search_admission("orthologous", operation_id, operation_outcome))
+            }
+        }, add = TRUE)
+        operation_batch_id <- bind_search_batch_owner("orthologous", operation_id, gate_origin)
+        lastOrthoSearchedGene(gene_name)
+        force_external_alias_lookup <- identical(gate_origin, "external_alias")
+        ortho_timing_search_start <<- Sys.time()
+        perf_run <- app_perf_new_run("ORTHO_SEARCH")
         start_plot_timing_tracker(orthoPlotTimingTracker, perf_run, context = "ORTHO_TIMING")
         reset_ortho_first_paint_gate(perf_run)
         app_perf_mark(perf_run, "click search", "ORTHO")
+        orthology_verification_required <- isTRUE(cross_species_requires_verified_orthology())
+        app_perf_mark(perf_run, sprintf("orthology policy=%s", if (orthology_verification_required) "verified_compara" else "local_matches"), "ORTHO")
+        orthoExternalRescueState$id <- operation_id
+        reset_ortho_organism_lookup_status()
         lookup_status_rows <- data.frame(
             key = paste0("file:", seq_along(files)),
             name = vapply(seq_along(files), function(j) {
@@ -19141,7 +19344,10 @@
             stringsAsFactors = FALSE
         )
         set_ortho_organism_lookup_status(rows = lookup_status_rows)
-        on.exit(if (!isTRUE(ortho_async_search)) finish_search_run("orthologous"), add = TRUE)
+        cancel_ortho_auto_render_queue()
+        if (!identical(as.integer(orthoVisibleCount()), as.integer(orthoInitialVisibleCount))) orthoVisibleCount(orthoInitialVisibleCount)
+        set_popup_loading(TRUE, context = "Cross-Species Gene Search", text = "Preparing request...")
+        searchStatusOrthologous("Preparing request...")
         cancel_autocomplete_background("gene_name")
 
         target_preview <- summarize_label_list(
@@ -19408,6 +19614,7 @@
         }
 
         process_orthologous_lookup_results <- function(results, phase_label = "local_lookup", report_not_found = TRUE) {
+            if (!owns_search_run("orthologous", operation_id)) return(invisible(NULL))
         phase_added_ids <- character(0L)
         phase_tx_lengths <- numeric(0)
         # Hold each successful split only until its blocks are transferred to
@@ -19888,6 +20095,8 @@
         }
 
         finish_orthologous_local_phase <- function(lookup_results, lookup_stage_t0, already_processed = FALSE) {
+            if (!owns_search_run("orthologous", operation_id)) return(invisible(NULL))
+            operation_outcome <<- "completed"
             ambiguous_positions <- which(vapply(lookup_results, function(res) {
                 identical(
                     as.character((((res %||% list())$lookup %||% list())$lookup_stage %||% "")),
@@ -20107,6 +20316,7 @@
             if (isTRUE(rescue_needed)) {
             rescue_request_id <- paste0("ortho_rescue_", as.integer(Sys.time()), "_", sample.int(1000000L, 1))
             orthoExternalRescueState$id <- rescue_request_id
+            settle_rescue <- start_search_child("orthologous", operation_id)
             rescue_t0 <- app_perf_now()
             local_plotted_at_rescue_start <- plotted_count
             append_status(
@@ -20122,7 +20332,10 @@
                     ifelse(length(rescue_jobs) == 1L, "", "s")
                 )
             )
-            launch_external_rescue <- function() {
+            launch_external_rescue <- session_guard(function() {
+                if (!owns_search_run("orthologous", operation_id)) return(invisible(NULL))
+                submitted <- FALSE
+                on.exit(if (!submitted) settle_rescue("failed"), add = TRUE)
                 if (!identical(orthoExternalRescueState$id, rescue_request_id)) {
                     app_perf_mark(perf_run, "external alias rescue launch skipped: stale request", "ORTHO_LOOKUP")
                     return(invisible(NULL))
@@ -20213,7 +20426,7 @@
                             }
                         }
                     })
-                    session$onFlushed(function() {
+                    session$onFlushed(search_operation_guard("orthologous", operation_id, function() {
                         isolate({
                             rescue_initial_ids <- Filter(function(pid) {
                                 meta <- tryCatch(plotGeneMetaOrthologous()[[as.character(pid)]], error = function(e) NULL)
@@ -20235,12 +20448,18 @@
                             "try{var ids=%s; for(var i=0;i<ids.length;i++){var card=document.getElementById('ortho-card-'+ids[i]); if(window.Shiny&&Shiny.bindAll&&card){Shiny.bindAll(card);}} if(window.scheduleGgiraphNudge){window.scheduleGgiraphNudge(120); window.scheduleGgiraphNudge(520); window.scheduleGgiraphNudge(1100);} window.dispatchEvent(new Event('resize')); if(window.jQuery){window.jQuery(document).trigger('shiny:value');}}catch(e){}",
                             ids_js
                         ))
-                    }, once = TRUE)
+                    }, terminal = TRUE), once = TRUE)
                     invisible(NULL)
                 }
                 rescue_promises <- lapply(seq_along(rescue_chunks), function(chunk_idx) {
                     chunk_jobs <- rescue_chunks[[chunk_idx]]
-                    promises::future_promise({
+                    # promise_all rejects on the first error. Keep each sibling
+                    # owned until it settles so a failed chunk cannot discard
+                    # another chunk's valid scientific results.
+                    settle_chunk <- start_search_child("orthologous", operation_id)
+                    chunk_submitted <- FALSE
+                    on.exit(if (!chunk_submitted) settle_chunk("failed"), add = TRUE)
+                    chunk_promise <- search_future_promise("orthologous", operation_id, {
                     worker_env <- globalenv()
                     libs_key <- ".cgv_lookup_worker_libs_loaded_v1"
                     if (!isTRUE(get0(libs_key, envir = worker_env, inherits = FALSE, ifnotfound = FALSE))) {
@@ -20262,7 +20481,7 @@
                         assign(libs_key, TRUE, envir = worker_env)
                     }
                         lapply(chunk_jobs, run_orthologous_lookup_job_pure)
-                    }) %...>% (session_guard(function(chunk_results) {
+                    }) %...>% (search_operation_guard("orthologous", operation_id, function(chunk_results) {
                         if (!identical(orthoExternalRescueState$id, rescue_request_id)) {
                             app_perf_mark(perf_run, sprintf("external alias rescue chunk ignored: stale chunk=%d", as.integer(chunk_idx)), "ORTHO_LOOKUP")
                             return(chunk_results)
@@ -20298,9 +20517,14 @@
                             "ORTHO_LOOKUP"
                         )
                         chunk_results
-                    }))
+                    }, cleanup = function() settle_chunk())) %...!% (function(err) {
+                        settle_chunk("failed")
+                        stop(err)
+                    })
+                    chunk_submitted <- TRUE
+                    chunk_promise
                 })
-                promises::promise_all(.list = rescue_promises) %...>% (session_guard(function(rescue_results_chunks) {
+                promises::promise_all(.list = rescue_promises) %...>% (search_operation_guard("orthologous", operation_id, function(rescue_results_chunks) {
                     if (!identical(orthoExternalRescueState$id, rescue_request_id)) {
                         app_perf_mark(perf_run, "external alias rescue ignored: stale request", "ORTHO_LOOKUP")
                         return(NULL)
@@ -20342,8 +20566,9 @@
                         sprintf("external alias rescue background complete added=%d", as.integer(rescue_added)),
                         "ORTHO_LOOKUP"
                     )
+                    settle_rescue()
                     NULL
-                })) %...!% (session_guard(function(err) {
+                })) %...!% (search_operation_guard("orthologous", operation_id, function(err) {
                     if (identical(orthoExternalRescueState$id, rescue_request_id)) {
                         rescue_err <- trimws(as.character(conditionMessage(err) %||% "Unknown error"))
                         rescue_err <- gsub("[\r\n]+", " ", rescue_err)
@@ -20356,15 +20581,17 @@
                         rescue_msg <- sprintf("External alias rescue failed for gene '%s': %s", gene_name, rescue_err)
                         append_status(searchStatusOrthologous, rescue_msg)
                         emit_popup_status("Cross-Species Gene Search", rescue_msg, tone = "warning", clear = TRUE)
+                        settle_rescue("failed")
                     }
                     NULL
                 }))
+                submitted <- TRUE
                 invisible(NULL)
-            }
+            })
             if (requireNamespace("later", quietly = TRUE)) {
-                session$onFlushed(function() {
-                    session_later(launch_external_rescue, delay = 0.05)
-                }, once = TRUE)
+                session$onFlushed(session_guard(function() {
+                    if (owns_search_run("orthologous", operation_id)) session_later(launch_external_rescue, delay = 0.05)
+                }), once = TRUE)
                 app_perf_mark(perf_run, "external alias rescue launch queued after local UI flush", "ORTHO_LOOKUP")
             } else {
                 session$onFlushed(launch_external_rescue, once = TRUE)
@@ -20463,6 +20690,7 @@
             }
         }
 
+        operation_outcome <<- if (identical(final_tone, "error")) "failed" else "completed"
         searchStatusOrthologous(final_msg)
         emit_popup_status("Cross-Species Gene Search", final_msg, tone = final_tone, clear = TRUE)
         app_perf_mark(perf_run, sprintf("finish tone=%s", final_tone), "ORTHO")
@@ -20481,8 +20709,7 @@
             job$allow_partial_suggestions <- FALSE
             job
         })
-        reference_anchor <- pendingOrthoReferenceAnchor()
-        pendingOrthoReferenceAnchor(NULL)
+        reference_anchor <- payload$reference_anchor %||% NULL
         anchor_resolution <- apply_cross_species_reference_anchor(local_lookup_jobs, reference_anchor)
         local_lookup_jobs <- anchor_resolution$jobs
         if (isTRUE(anchor_resolution$applied)) {
@@ -20523,7 +20750,6 @@
                 !raw %in% c("", "0", "false", "no", "off")
         }
         if (isTRUE(local_progressive_enabled)) {
-            ortho_async_search <- TRUE
             local_request_id <- paste0("ortho_local_", as.integer(Sys.time()), "_", sample.int(1000000L, 1))
             orthoExternalRescueState$id <- local_request_id
             worker_count <- tryCatch(as.integer(future::nbrOfWorkers()), error = function(e) 1L)
@@ -20547,7 +20773,7 @@
             progressive_results <- vector("list", length(local_lookup_jobs))
             promise_map <- lapply(seq_along(local_lookup_jobs), function(job_idx) {
                 job <- local_lookup_jobs[[job_idx]]
-                promises::future_promise({
+                search_future_promise("orthologous", operation_id, {
                     worker_env <- globalenv()
                     libs_key <- ".cgv_lookup_worker_libs_loaded_v1"
                     if (!isTRUE(get0(libs_key, envir = worker_env, inherits = FALSE, ifnotfound = FALSE))) {
@@ -20569,7 +20795,7 @@
                         assign(libs_key, TRUE, envir = worker_env)
                     }
                     run_orthologous_lookup_job_pure(job)
-                }, seed = FALSE) %...>% (session_guard(function(res) {
+                }, seed = FALSE) %...>% (search_operation_guard("orthologous", operation_id, function(res) {
                     if (!identical(orthoExternalRescueState$id, local_request_id)) {
                         app_perf_mark(perf_run, sprintf("progressive local result ignored: stale job=%d", as.integer(job_idx)), "ORTHO_LOOKUP")
                         return(res)
@@ -20579,11 +20805,12 @@
                     res
                 }))
             })
-            promises::promise_all(.list = promise_map) %...>% (session_guard(function(all_results) {
+            promises::promise_all(.list = promise_map) %...>% (search_operation_guard("orthologous", operation_id, function(all_results) {
                 if (!identical(orthoExternalRescueState$id, local_request_id)) {
                     app_perf_mark(perf_run, "progressive local completion ignored: stale request", "ORTHO_LOOKUP")
                     return(NULL)
                 }
+                on.exit(release_search_admission("orthologous", operation_id, operation_outcome), add = TRUE)
                 final_results <- progressive_results
                 for (idx in seq_along(final_results)) {
                     if (is.null(final_results[[idx]])) {
@@ -20601,10 +20828,10 @@
                 }
                 finish_orthologous_local_phase(final_results, lookup_stage_t0, already_processed = FALSE)
                 set_popup_loading(FALSE, context = "Cross-Species Gene Search")
-                finalize_search_cleanup("orthologous")
-                finish_search_run("orthologous")
+                finalize_search_cleanup("orthologous", operation_id, operation_batch_id)
                 NULL
-            })) %...!% (session_guard(function(err) {
+            })) %...!% (search_operation_guard("orthologous", operation_id, function(err) {
+                on.exit(release_search_admission("orthologous", operation_id, "failed"), add = TRUE)
                 if (identical(orthoExternalRescueState$id, local_request_id)) {
                     local_err <- trimws(as.character(conditionMessage(err) %||% "Unknown error"))
                     local_err <- gsub("[\r\n]+", " ", local_err)
@@ -20614,11 +20841,11 @@
                     searchStatusOrthologous(msg)
                     emit_popup_status("Cross-Species Gene Search", msg, tone = "error", clear = TRUE)
                     set_popup_loading(FALSE, context = "Cross-Species Gene Search")
-                    finalize_search_cleanup("orthologous")
-                    finish_search_run("orthologous")
+                    finalize_search_cleanup("orthologous", operation_id, operation_batch_id)
                 }
                 NULL
             }))
+            ortho_async_search <- TRUE
             return(invisible(NULL))
         }
 

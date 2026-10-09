@@ -77,6 +77,7 @@
         shinyInput("catalog_multigene_ready", {
           species_id: speciesId,
           gene: gene,
+          request_id: payload.request_id,
           nonce: Date.now()
         });
       }, 220);
@@ -90,6 +91,7 @@
         shinyInput("catalog_cross_ready", {
           species_ids: speciesIds,
           gene: gene,
+          request_id: payload.request_id,
           nonce: Date.now()
         });
       }, 260);
