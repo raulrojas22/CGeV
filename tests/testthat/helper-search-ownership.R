@@ -70,7 +70,8 @@ ownership_harness <- function(observers = TRUE) {
         'bind_search_batch_owner', 'schedule_search_dispatch', 'cancel_search_operation',
         'preparation_state_for_mode', 'invalidate_search_preparation', 'check_search_preparation_gate',
         'set_batch_search_state', 'take_next_batch_gene', 'dispatch_next_batch_search',
-        'queue_global_batch_search', 'finalize_search_cleanup', 'execute_homologous_search',
+        'queue_global_batch_search', 'finalize_search_cleanup', 'finalize_search_request',
+        'advance_search_batch', 'clear_search_inputs_if_unowned', 'execute_homologous_search',
         'execute_orthologous_search', 'reset_homo_batch_summary', 'start_homo_batch_summary',
         'record_homo_batch_result', 'emit_homo_batch_summary_if_ready', 'run_global_search',
         'cancel_orthologous_background_rescue', 'summarize_label_list', 'append_status')) eval(ownership_assignment(name), e)
