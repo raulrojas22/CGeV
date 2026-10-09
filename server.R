@@ -15065,7 +15065,7 @@
                 batchSearchMode("")
                 batchSearchRemaining(0L)
                 reset_homo_batch_summary()
-                clear_all_gene_search_inputs()
+                clear_search_inputs_if_unowned(mode_txt)
                 return(invisible(FALSE))
             }
 
@@ -15126,6 +15126,38 @@
         previous <- searchOperationBatch[[mode]]
         if (is.list(previous) && identical(previous$id, operation_id) && isTRUE(previous$cleaned)) return(invisible(FALSE))
         searchOperationBatch[[mode]] <- list(id = operation_id, generation = batch_id, cleaned = TRUE)
+        advance_search_batch(mode, batch_id, operation_id)
+    }
+
+    # A rejected preflight never became an operation. Retire only its request,
+    # and advance only the batch generation to which that request belonged.
+    finalize_search_request <- function(mode, request_id) {
+        if (!search_request_is_current(mode, request_id)) return(invisible(FALSE))
+        payload <- searchRequestPayload[[mode]]
+        stateHelpersDomain$cancel_search_request(mode, request_id)
+        if (!is.list(payload) || !identical(payload$id, request_id) ||
+            !identical(payload$origin, "global_batch") ||
+            !identical(payload$batch_id, searchBatchOwner$generation) ||
+            !identical(isolate(batchSearchMode()), mode) ||
+            isolate(batchSearchRemaining()) < 1L) return(invisible(FALSE))
+        advance_search_batch(mode, payload$batch_id)
+    }
+
+    clear_search_inputs_if_unowned <- function(mode) {
+        if (!isTRUE(session_alive())) return(invisible(FALSE))
+        states <- isolate(searchRunState())
+        for (panel in c("homologous", "orthologous")) {
+            if (!is.null(stateHelpersDomain$get_search_request_id(panel)) ||
+                (!identical(panel, mode) && identical(states[[panel]]$status, "running"))) return(invisible(FALSE))
+        }
+        clear_all_gene_search_inputs()
+        invisible(TRUE)
+    }
+
+    # Shared by accepted-operation cleanup and owned preflight rejection.
+    advance_search_batch <- function(mode, batch_id, operation_id = NULL) {
+        if (!isTRUE(session_alive()) || !identical(batch_id, searchBatchOwner$generation)) return(invisible(FALSE))
+        if (!is.null(operation_id) && !owns_search_run(mode, operation_id)) return(invisible(FALSE))
         mode_txt <- tolower(trimws(as.character(mode %||% "")))
         active_mode <- tolower(trimws(as.character(batchSearchMode() %||% "")))
         remaining <- suppressWarnings(as.integer(batchSearchRemaining() %||% 0L))
@@ -15140,7 +15172,7 @@
         if (!is_active_batch) {
             batchSearchQueue(character())
             reset_homo_batch_summary()
-            clear_all_gene_search_inputs()
+            clear_search_inputs_if_unowned(mode_txt)
             return(invisible(NULL))
         }
 
@@ -15152,7 +15184,7 @@
             batchSearchMode("")
             batchSearchRemaining(0L)
             batchSearchQueue(character())
-            clear_all_gene_search_inputs()
+            clear_search_inputs_if_unowned(mode_txt)
         } else {
             batchSearchRemaining(remaining)
             queued_genes <- trimws(as.character(batchSearchQueue() %||% character(0)))
@@ -15163,7 +15195,7 @@
                 }
                 batchSearchMode("")
                 batchSearchRemaining(0L)
-                clear_all_gene_search_inputs()
+                clear_search_inputs_if_unowned(mode_txt)
                 return(invisible(NULL))
             }
             dispatch_next_batch_search(mode_txt, delay_sec = 0.10,
@@ -15195,7 +15227,8 @@
         invisible(TRUE)
     }
 
-    execute_orthologous_search <- function(gene_override = NULL, origin = "local", request_id = searchDispatchContext$orthologous) {
+    execute_orthologous_search <- function(gene_override = NULL, origin = "local", request_id = searchDispatchContext$orthologous,
+                                         reference_anchor = NULL) {
         if (is.null(request_id)) {
             request <- request_search_run("orthologous")
             if (!isTRUE(request$ok)) return(invisible(FALSE))
@@ -15207,7 +15240,9 @@
         gene_txt <- trimws(as.character(gene_override %||% ""))
         if (!nzchar(gene_txt)) gene_txt <- trimws(as.character(isolate(input$gene_name) %||% ""))
         previous_payload <- searchRequestPayload$orthologous
-        reference_anchor <- if (is.list(previous_payload) && identical(previous_payload$id, request_id)) {
+        reference_anchor <- if (!missing(reference_anchor)) {
+            reference_anchor
+        } else if (is.list(previous_payload) && identical(previous_payload$id, request_id)) {
             previous_payload$reference_anchor
         } else isolate(pendingOrthoReferenceAnchor())
         searchRequestPayload$orthologous <- list(id = request_id, gene = gene_txt, origin = origin,
@@ -16199,7 +16234,8 @@
             lastOrthoSearchedGene("")
             pendingOrthoSearchGene(gene)
             execute_orthologous_search(gene_override = gene,
-                origin = if (identical(pending$origin, "external_alias")) "external_alias" else "confirmation")
+                origin = if (identical(pending$origin, "external_alias")) "external_alias" else "confirmation",
+                reference_anchor = pending$reference_anchor)
         },
         ignoreInit = TRUE
     )
@@ -18197,7 +18233,7 @@
                 request_id <- take_search_event("homologous", input[[paste0("generate", i)]], input$cgv_homo_search_dispatch)
                 if (is.null(request_id)) return(invisible(NULL))
                 request_retained <- FALSE
-                on.exit(if (!request_retained) stateHelpersDomain$cancel_search_request("homologous", request_id), add = TRUE)
+                on.exit(if (!request_retained) finalize_search_request("homologous", request_id), add = TRUE)
                 payload <- search_event_payload("homologous", request_id, isolate(input[[paste0("filter", i)]]) %||% "")
                 if (is.null(payload)) return(invisible(NULL))
                 gate_gene <- trimws(as.character(payload$gene %||% ""))
@@ -18969,7 +19005,7 @@
                 request_id <- take_search_event("orthologous", input$search_gene, input$cgv_ortho_search_dispatch)
                 if (is.null(request_id)) return(invisible(NULL))
                 request_retained <- FALSE
-                on.exit(if (!request_retained) stateHelpersDomain$cancel_search_request("orthologous", request_id), add = TRUE)
+                on.exit(if (!request_retained) finalize_search_request("orthologous", request_id), add = TRUE)
                 payload <- search_event_payload("orthologous", request_id, isolate(input$gene_name) %||% "")
                 if (is.null(payload)) return(invisible(NULL))
                 gate_gene <- trimws(as.character(payload$gene %||% ""))
@@ -19239,7 +19275,8 @@
             !isTRUE(is_batch_ortho_check) &&
             nzchar(last_gene) &&
             !identical(tolower(trimws(gene_name)), tolower(trimws(last_gene)))) {
-            pendingOrthoGeneChange(list(gene = gene_name, request_id = request_id, origin = gate_origin))
+            pendingOrthoGeneChange(list(gene = gene_name, request_id = request_id, origin = gate_origin,
+                reference_anchor = payload$reference_anchor))
             request_retained <- TRUE
             set_popup_loading(FALSE, context = "Cross-Species Gene Search")
             close_popup_status(clear = TRUE)
