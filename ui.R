@@ -3790,6 +3790,24 @@ fluidPage(
         }
 
         if (window.Shiny && typeof Shiny.addCustomMessageHandler === 'function') {
+          // Capture identity from the clicked dialog, before server replacement.
+          $(document).on('click', '.app-confirmation-btn-confirm, #confirm_delete_plot_btn', function() {
+            var modal = this.closest('#shiny-modal');
+            if (!modal) return;
+            var deletion = modal.querySelector('[data-cgv-delete-intent]');
+            if (deletion) {
+              Shiny.setInputValue('cgv_plot_delete_confirmed', {
+                intent_id: deletion.getAttribute('data-cgv-delete-intent')
+              }, {priority: 'event'});
+              return;
+            }
+            var owner = modal.querySelector('[data-cgv-search-request]');
+            if (!owner) return;
+            Shiny.setInputValue('cgv_search_confirmation_accepted', {
+              mode: owner.getAttribute('data-cgv-search-mode'),
+              request_id: owner.getAttribute('data-cgv-search-request')
+            }, {priority: 'event'});
+          });
           // Closing a search confirmation retires only its pending request.
           $(document).on('hidden.bs.modal', '#shiny-modal', function() {
             var owner = this.querySelector('[data-cgv-search-request]');

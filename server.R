@@ -1224,11 +1224,27 @@
     }
     orthoExternalRescueState <- new.env(parent = emptyenv())
     orthoExternalRescueState$id <- ""
-    cancel_orthologous_background_rescue <- function(reason = "user_action") {
+    capture_orthologous_cancellation_owner <- function(source_key = NULL) {
+        if (!isTRUE(session_alive())) return(NULL)
         current <- get_search_run_mode_state("orthologous")$mode_state
-        if (identical(current$status, "running")) cancel_search_operation("orthologous", current$id)
         pending_id <- stateHelpersDomain$get_search_request_id("orthologous")
-        if (!is.null(pending_id)) cancel_search_operation("orthologous", pending_id)
+        payload <- searchRequestPayload$orthologous
+        operation_matches <- is.null(source_key) || identical(current$source_key, source_key)
+        request_matches <- is.null(source_key) || (is.list(payload) &&
+            identical(payload$id, pending_id) && identical(payload$source_key, source_key))
+        list(operation_id = if (operation_matches) current$id else NULL,
+             request_id = if (request_matches) pending_id else NULL,
+             rescue_id = if (operation_matches) orthoExternalRescueState$id else NULL)
+    }
+    # Callers must capture their owner at the intent boundary, or select the
+    # outgoing source explicitly. Never discover a replacement owner here.
+    cancel_orthologous_background_rescue <- function(reason, owner) {
+        if (!isTRUE(session_alive()) || !is.list(owner)) return(invisible(FALSE))
+        if (!is.null(owner$operation_id)) cancel_search_operation("orthologous", owner$operation_id)
+        if (!is.null(owner$request_id)) cancel_search_operation("orthologous", owner$request_id)
+        if (is.null(owner$rescue_id) || !identical(orthoExternalRescueState$id, owner$rescue_id)) {
+            return(invisible(FALSE))
+        }
         reason_txt <- tolower(trimws(as.character(reason %||% "user_action")))
         reason_txt <- gsub("[^a-z0-9_]+", "_", reason_txt)
         if (!nzchar(reason_txt)) {
@@ -1269,6 +1285,8 @@
     pendingLocalSessionDeleteName <- reactiveVal("")
     pendingPlotDeletePanel <- reactiveVal("")
     pendingPlotDeleteId <- reactiveVal("")
+    pendingPlotDeleteOwner <- reactiveVal(NULL)
+    nextPlotDeleteIntent <- 0
     pendingClearActivePanel <- reactiveVal("homologous")
     homoSearchObserverRef <- reactiveVal(NULL)
     orthoSearchObserverRef <- reactiveVal(NULL)
@@ -1324,10 +1342,34 @@
     cancel_autocomplete_background <- stateHelpersDomain$cancel_autocomplete_background
     compose_autocomplete_still_valid <- stateHelpersDomain$compose_autocomplete_still_valid
     get_search_run_mode_state <- stateHelpersDomain$get_search_run_mode_state
-    begin_search_run <- stateHelpersDomain$begin_search_run
+    orthologous_search_source_key <- function() {
+        if (!isTRUE(session_alive())) return(NULL)
+        isolate({
+            mode <- as.character(input$ortho_data_mode %||% "")
+            detail <- if (mode %in% c("preloaded", "mixed")) {
+                paste(sort(unique(as.character(input$ortho_preloaded_species %||% character(0)))), collapse = "|")
+            } else if (identical(mode, "ncbi")) {
+                paste(names(orthoPreparedNcbiOrganisms() %||% list()), collapse = "|")
+            } else if (identical(mode, "upload")) {
+                paste(as.character(input$files$datapath %||% character(0)), collapse = "|")
+            } else ""
+            paste(mode, detail, sep = "::")
+        })
+    }
+    begin_search_run <- function(mode, fingerprint = "", duplicate_window_sec = 1.2, request_id = NULL) {
+        if (!isTRUE(session_alive())) return(list(ok = FALSE, reason = "closed"))
+        source_key <- if (identical(mode, "orthologous")) orthologous_search_source_key() else ""
+        stateHelpersDomain$begin_search_run(mode, fingerprint, duplicate_window_sec, request_id,
+                                           source_key = source_key)
+    }
     finish_search_run <- stateHelpersDomain$finish_search_run
     request_search_run <- function(mode) {
         request <- stateHelpersDomain$request_search_run(mode)
+        if (isTRUE(request$ok) && identical(mode, "orthologous")) {
+            searchRequestPayload$orthologous <- list(id = request$id, origin = "local",
+                source_key = orthologous_search_source_key(),
+                preparation_token = isolate(searchPreparationTokenOrtho()))
+        }
         if (identical(request$reason, "active")) {
             context <- if (identical(mode, "orthologous")) "Cross-Species Gene Search" else "Multi-Gene Search"
             emit_popup_status(context, "A gene search is already running. Please wait for it to finish.", tone = "info", clear = FALSE)
@@ -1374,16 +1416,30 @@
     searchDispatchContext <- new.env(parent = emptyenv())
     searchRequestPayload <- new.env(parent = emptyenv())
     search_event_payload <- function(mode, request_id, gene) {
+        if (!isTRUE(session_alive())) return(NULL)
         payload <- searchRequestPayload[[mode]]
         if (is.list(payload) && identical(payload$id, request_id)) {
+            if (identical(mode, "orthologous") &&
+                (!identical(payload$source_key, orthologous_search_source_key()) ||
+                 !identical(payload$preparation_token, isolate(searchPreparationTokenOrtho())))) {
+                stateHelpersDomain$cancel_search_request(mode, request_id)
+                return(NULL)
+            }
             if (identical(payload$origin, "global_batch") &&
                 !identical(payload$batch_id, searchBatchOwner$generation)) {
                 stateHelpersDomain$cancel_search_request(mode, request_id)
                 return(NULL)
             }
+            payload$gene <- payload$gene %||% gene
             return(payload)
         }
-        list(id = request_id, gene = gene, origin = "local")
+        payload <- list(id = request_id, gene = gene, origin = "local")
+        if (identical(mode, "orthologous")) {
+            payload$source_key <- orthologous_search_source_key()
+            payload$preparation_token <- isolate(searchPreparationTokenOrtho())
+            searchRequestPayload$orthologous <- payload
+        }
+        payload
     }
     bind_search_batch_owner <- function(mode, id, origin) {
         if (!identical(origin, "global_batch")) {
@@ -10482,8 +10538,9 @@
         old_snapshot <- capture_ortho_source_snapshot()
         orthoSourceHistory$put(old_key, old_snapshot)
         had_plots <- !is.null(old_snapshot)
+        cancel_orthologous_background_rescue("source_change",
+            capture_orthologous_cancellation_owner(source_key = old_key))
         if (isTRUE(had_plots)) {
-            cancel_orthologous_background_rescue("source_change")
             clear_orthologous_visualizations()
         } else {
             organismInfoOrthologous(list())
@@ -15242,11 +15299,14 @@
         previous_payload <- searchRequestPayload$orthologous
         reference_anchor <- if (!missing(reference_anchor)) {
             reference_anchor
-        } else if (is.list(previous_payload) && identical(previous_payload$id, request_id)) {
+        } else if (is.list(previous_payload) && identical(previous_payload$id, request_id) &&
+                   "reference_anchor" %in% names(previous_payload)) {
             previous_payload$reference_anchor
         } else isolate(pendingOrthoReferenceAnchor())
         searchRequestPayload$orthologous <- list(id = request_id, gene = gene_txt, origin = origin,
-            batch_id = searchBatchOwner$generation, reference_anchor = reference_anchor)
+            batch_id = searchBatchOwner$generation, reference_anchor = reference_anchor,
+            source_key = previous_payload$source_key %||% orthologous_search_source_key(),
+            preparation_token = previous_payload$preparation_token %||% isolate(searchPreparationTokenOrtho()))
         pendingOrthoReferenceAnchor(NULL)
         pendingOrthoSearchOrigin(as.character(origin %||% "local"))
         if (nzchar(gene_txt)) {
@@ -16146,7 +16206,7 @@
 
             if (!isTRUE(deletion_confirmation_enabled())) {
                 if (identical(active_panel, "orthologous")) {
-                    cancel_orthologous_background_rescue("clear_visualizations")
+                    cancel_orthologous_background_rescue("clear_visualizations", capture_orthologous_cancellation_owner())
                 }
                 run_clear_selected_visualizations(active_panel = active_panel, include_other = FALSE)
                 return(invisible(NULL))
@@ -16212,7 +16272,7 @@
             }
             include_other <- isTRUE(input$clear_all_visualizations_include_other_tab %||% FALSE)
             if (identical(active_panel, "orthologous") || isTRUE(include_other)) {
-                cancel_orthologous_background_rescue("clear_visualizations")
+                cancel_orthologous_background_rescue("clear_visualizations", capture_orthologous_cancellation_owner())
             }
             run_clear_selected_visualizations(active_panel = active_panel, include_other = include_other)
         },
@@ -16220,16 +16280,23 @@
     )
 
     # Gene-lock (ortho): user confirmed clearing existing results to search a different gene
-    observeEvent(input$confirm_ortho_gene_change_btn,
+    observeEvent(input$cgv_search_confirmation_accepted,
         {
+            accepted <- input$cgv_search_confirmation_accepted %||% list()
+            if (!identical(accepted$mode, "orthologous")) return(invisible(NULL))
             pending <- pendingOrthoGeneChange()
-            if (!is.list(pending) || !search_request_is_current("orthologous", pending$request_id)) return(invisible(NULL))
+            if (!is.list(pending) || !identical(accepted$request_id, pending$request_id) ||
+                !search_request_is_current("orthologous", pending$request_id)) return(invisible(NULL))
+            payload <- searchRequestPayload$orthologous
+            if (!is.list(payload) || !identical(payload$id, pending$request_id) ||
+                !identical(payload$source_key, orthologous_search_source_key()) ||
+                !identical(payload$preparation_token, isolate(searchPreparationTokenOrtho()))) return(invisible(NULL))
             removeModal()
             gene <- as.character(pending$gene %||% "")
             pendingOrthoGeneChange(NULL)
             if (!nzchar(gene)) return(invisible(NULL))
             # Clear orthologous visualizations, reset gene lock, then retrigger search
-            cancel_orthologous_background_rescue("gene_change")
+            cancel_orthologous_background_rescue("gene_change", capture_orthologous_cancellation_owner())
             run_clear_selected_visualizations(active_panel = "orthologous", include_other = FALSE)
             lastOrthoSearchedGene("")
             pendingOrthoSearchGene(gene)
@@ -16250,10 +16317,13 @@
     }, ignoreInit = TRUE)
 
     # Organism-lock (homo): user confirmed clearing existing results to continue with new organism
-    observeEvent(input$confirm_homo_organism_change_btn,
+    observeEvent(input$cgv_search_confirmation_accepted,
         {
+            accepted <- input$cgv_search_confirmation_accepted %||% list()
+            if (!identical(accepted$mode, "homologous")) return(invisible(NULL))
             pending <- pendingHomoOrganismChange()
-            if (!is.list(pending) || !search_request_is_current("homologous", pending$request_id)) return(invisible(NULL))
+            if (!is.list(pending) || !identical(accepted$request_id, pending$request_id) ||
+                !search_request_is_current("homologous", pending$request_id)) return(invisible(NULL))
             removeModal()
             gene <- as.character(pending$gene %||% "")
             pendingHomoOrganismChange(NULL)
@@ -31052,6 +31122,11 @@
             return(invisible(NULL))
         }
 
+        active_ids <- if (identical(panel, "orthologous")) activePlotIdsOrthologous() else activePlotIdsHomologous()
+        if (!panel %in% c("homologous", "orthologous") || !id_txt %in% as.character(active_ids)) {
+            return(invisible(NULL))
+        }
+
         if (!isTRUE(deletion_confirmation_enabled())) {
             if (panel == "homologous") remove_homologous_plot(id_txt, announce = TRUE)
             if (panel == "orthologous") remove_orthologous_plot(id_txt, announce = TRUE)
@@ -31060,11 +31135,21 @@
 
         pendingPlotDeletePanel(panel)
         pendingPlotDeleteId(id_txt)
+        nextPlotDeleteIntent <<- nextPlotDeleteIntent + 1
+        delete_owner <- list(intent_id = paste0("delete_", nextPlotDeleteIntent),
+            panel = panel, plot_id = id_txt,
+            operation_id = get_search_run_mode_state(panel)$mode_state$id,
+            request_id = stateHelpersDomain$get_search_request_id(panel),
+            preparation_token = isolate(preparation_state_for_mode(panel)$token()),
+            source_key = if (identical(panel, "orthologous")) orthologous_search_source_key() else NULL,
+            cancellation = if (identical(panel, "orthologous")) capture_orthologous_cancellation_owner() else NULL)
+        pendingPlotDeleteOwner(delete_owner)
         plot_label <- get_plot_delete_title(panel, id_txt)
 
         showModal(
             modalDialog(
                 title = "Delete Visualization",
+                tags$span(style = "display:none", `data-cgv-delete-intent` = delete_owner$intent_id),
                 tags$p("Are you sure you want to delete this visualization?"),
                 tags$p(tags$strong(plot_label)),
                 tags$p("This action cannot be undone."),
@@ -31082,13 +31167,27 @@
         )
     })
 
-    observeEvent(input$confirm_delete_plot_btn,
+    observeEvent(input$cgv_plot_delete_confirmed,
         {
-            removeModal()
+            accepted <- input$cgv_plot_delete_confirmed %||% list()
+            owner <- pendingPlotDeleteOwner()
+            if (!is.list(owner) || !identical(accepted$intent_id, owner$intent_id)) return(invisible(NULL))
             panel <- as.character(pendingPlotDeletePanel() %||% "")
             id_txt <- as.character(pendingPlotDeleteId() %||% "")
             pendingPlotDeletePanel("")
             pendingPlotDeleteId("")
+            pendingPlotDeleteOwner(NULL)
+
+            active_ids <- if (identical(panel, "orthologous")) activePlotIdsOrthologous() else activePlotIdsHomologous()
+            if (!identical(panel, owner$panel) || !identical(id_txt, owner$plot_id) ||
+                !id_txt %in% as.character(active_ids) ||
+                !identical(owner$operation_id, get_search_run_mode_state(panel)$mode_state$id) ||
+                !identical(owner$request_id, stateHelpersDomain$get_search_request_id(panel)) ||
+                !identical(owner$preparation_token, isolate(preparation_state_for_mode(panel)$token())) ||
+                (identical(panel, "orthologous") && !identical(owner$source_key, orthologous_search_source_key()))) {
+                return(invisible(NULL))
+            }
+            removeModal()
 
             if (!nzchar(panel) || !nzchar(id_txt)) {
                 emit_popup_status("Visualizations", "No visualization was selected for deletion.", tone = "warning", clear = TRUE)
@@ -31098,7 +31197,7 @@
             if (identical(panel, "homologous")) {
                 ok <- isTRUE(remove_homologous_plot(id_txt, announce = TRUE))
             } else if (identical(panel, "orthologous")) {
-                cancel_orthologous_background_rescue("delete_visualization")
+                cancel_orthologous_background_rescue("delete_visualization", owner$cancellation)
                 ok <- isTRUE(remove_orthologous_plot(id_txt, announce = TRUE))
             } else {
                 ok <- FALSE

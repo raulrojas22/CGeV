@@ -16,6 +16,7 @@ extract_handler <- function(start_pattern) {
     paste(ui_text[start:end], collapse = '\n')
 }
 transport <- paste(
+    extract_handler("$(document).on('click', '.app-confirmation-btn-confirm"),
     extract_handler("$(document).on('hidden.bs.modal'"),
     extract_handler("Shiny.addCustomMessageHandler('cgv_trigger_homo_search'"),
     extract_handler("Shiny.addCustomMessageHandler('cgv_trigger_ortho_search'"),
@@ -42,7 +43,8 @@ server <- function(input, output, session) {
     }
     engine$e$build_app_confirmation_modal <- function(title, body, confirm_input_id, confirm_label, ...) {
         modalDialog(title = title, body,
-            footer = tagList(modalButton('Dismiss'), actionButton(confirm_input_id, confirm_label)))
+            footer = tagList(modalButton('Dismiss'), actionButton(confirm_input_id, confirm_label,
+                class = 'app-confirmation-btn-confirm')))
     }
     engine$e$showModal <- function(dialog) shiny::showModal(dialog, session = session)
     engine$e$removeModal <- function() shiny::removeModal(session = session)
@@ -56,8 +58,8 @@ server <- function(input, output, session) {
         engine$session$setInputs(cgv_ortho_search_dispatch = input$cgv_ortho_search_dispatch)
         refresh(isolate(refresh()) + 1L)
     })
-    observeEvent(input$confirm_ortho_gene_change_btn, {
-        engine$session$setInputs(confirm_ortho_gene_change_btn = input$confirm_ortho_gene_change_btn)
+    observeEvent(input$cgv_search_confirmation_accepted, {
+        engine$session$setInputs(cgv_search_confirmation_accepted = input$cgv_search_confirmation_accepted)
         refresh(isolate(refresh()) + 1L)
     })
     observeEvent(input$cgv_search_confirmation_closed, {

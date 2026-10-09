@@ -9,9 +9,15 @@ const handlers = {};
 const inputs = [];
 const timers = [];
 let modalClosed;
+let modalAccepted;
 const context = {
   $(document) { return {on(event, selector, callback) {
-    assert.equal(event, 'hidden.bs.modal'); assert.equal(selector, '#shiny-modal'); modalClosed = callback;
+    if (event === 'hidden.bs.modal') {
+      assert.equal(selector, '#shiny-modal'); modalClosed = callback;
+    } else {
+      assert.equal(event, 'click');
+      assert.equal(selector, '.app-confirmation-btn-confirm, #confirm_delete_plot_btn'); modalAccepted = callback;
+    }
   }}; },
   Shiny: {
     addCustomMessageHandler(name, callback) { handlers[name] = callback; },
@@ -21,6 +27,29 @@ const context = {
   setWorkflowPanel() {}, Date,
 };
 context.window = { Shiny: context.Shiny, setTimeout(callback) { timers.push(callback); } };
+const acceptStart = ui.indexOf("$(document).on('click', '.app-confirmation-btn-confirm");
+const acceptEnd = ui.indexOf('          });', acceptStart) + '          });'.length;
+assert(acceptStart >= 0 && acceptEnd > acceptStart);
+vm.runInNewContext(ui.slice(acceptStart, acceptEnd), context);
+modalAccepted.call({closest() { return null; }});
+assert.equal(inputs.length, 0);
+const searchDialog = id => ({querySelector(selector) {
+  if (selector === '[data-cgv-delete-intent]') return null;
+  return {getAttribute(name) { return name === 'data-cgv-search-mode' ? 'orthologous' : id; }};
+}});
+modalAccepted.call({closest() { return searchDialog('search_A'); }});
+modalAccepted.call({closest() { return searchDialog('search_B'); }});
+assert.equal(inputs[0].name, 'cgv_search_confirmation_accepted');
+assert.equal(inputs[0].value.request_id, 'search_A');
+assert.equal(inputs[1].value.request_id, 'search_B');
+assert.equal(inputs[0].options.priority, 'event');
+inputs.length = 0;
+modalAccepted.call({closest() { return {querySelector() {
+  return {getAttribute() { return 'delete_1'; }};
+}}; }});
+assert.equal(inputs[0].name, 'cgv_plot_delete_confirmed');
+assert.equal(inputs[0].value.intent_id, 'delete_1');
+inputs.length = 0;
 const modalStart = ui.indexOf("$(document).on('hidden.bs.modal'");
 const modalEnd = ui.indexOf('          });', modalStart) + '          });'.length;
 assert(modalStart >= 0 && modalEnd > modalStart);
@@ -60,4 +89,4 @@ for (const [handler, ack, payload] of [
   assert.equal(emitted.value.request_id, payload.request_id);
   assert.equal(emitted.value.gene, payload.gene);
 }
-console.log('search-ownership-browser-transport: 5 actual handlers passed');
+console.log('search-ownership-browser-transport: 6 actual handlers passed, including tagged search/delete acceptance');

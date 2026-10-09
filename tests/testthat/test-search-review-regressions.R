@@ -66,7 +66,7 @@ test_that('confirmed reference selection preserves real GFF resolution and the o
     f$session$setInputs(cgv_ortho_search_dispatch = original)
     expect_length(fixture$jobs(), 0L)
     expect_identical(shiny::isolate(f$e$pendingOrthoGeneChange())$reference_anchor, anchor)
-    f$session$setInputs(confirm_ortho_gene_change_btn = 1)
+    f$session$setInputs(cgv_search_confirmation_accepted = list(mode = 'orthologous', request_id = original$request_id))
     replacement <- f$ticket('orthologous')
     expect_false(identical(original$request_id, replacement$request_id))
     expect_identical(f$e$searchRequestPayload$orthologous$reference_anchor, anchor)
@@ -93,11 +93,11 @@ test_that('confirmed reference payload survives replacement preparation and stal
     f$e$fileDataOrthologous(list(old = list())); f$e$lastOrthoSearchedGene('OLD')
     f$e$execute_orthologous_search('BROAD', 'orthology_reference', reference_anchor = anchor)
     a <- f$ticket('orthologous'); f$session$setInputs(cgv_ortho_search_dispatch = a)
-    f$session$setInputs(confirm_ortho_gene_change_btn = 1)
+    f$session$setInputs(cgv_search_confirmation_accepted = list(mode = 'orthologous', request_id = a$request_id))
     b <- f$ticket('orthologous')
     f$e$searchPreparationReadyOrtho(FALSE)
     f$session$setInputs(cgv_ortho_search_dispatch = b)
-    f$session$setInputs(confirm_ortho_gene_change_btn = 2,
+    f$session$setInputs(cgv_search_confirmation_accepted = list(mode = 'orthologous', request_id = a$request_id),
         cgv_search_confirmation_closed = list(mode = 'orthologous', request_id = a$request_id),
         cgv_ortho_search_dispatch = a)
     expect_true(f$e$search_request_is_current('orthologous', b$request_id))
@@ -218,11 +218,35 @@ test_that('orthologous batch advances after a real broad-query preflight rejecti
 test_that('new request and batch cleanup guards do not access destroyed session reactives', {
     f <- ownership_harness(FALSE)
     request <- f$e$request_search_run('orthologous')
+    cancellation_owner <- f$e$capture_orthologous_cancellation_owner()
     generation <- f$e$searchBatchOwner$generation
     f$close()
     destroyed <- function(...) stop('destroyed reactive accessed')
     for (name in c('searchRunState', 'batchSearchMode', 'batchSearchRemaining', 'batchSearchQueue')) f$e[[name]] <- destroyed
+    f$e$input <- destroyed
     expect_false(f$e$finalize_search_request('orthologous', request$id))
     expect_false(f$e$clear_search_inputs_if_unowned('homologous'))
     expect_false(f$e$advance_search_batch('orthologous', generation))
+    expect_null(f$e$capture_orthologous_cancellation_owner())
+    expect_false(f$e$cancel_orthologous_background_rescue('closed', cancellation_owner))
+    expect_identical(f$e$begin_search_run('orthologous')$reason, 'closed')
+    expect_null(f$e$orthologous_search_source_key())
+    expect_null(f$e$search_event_payload('orthologous', request$id, 'TP53'))
+    expect_false(f$e$execute_orthologous_search('TP53', request_id = request$id))
+})
+
+test_that('tagged confirmation acceptance cannot authorize another mode or newer pending intent', {
+    f <- ownership_harness(FALSE); on.exit(f$close(), add = TRUE)
+    f$e$run_clear_selected_visualizations <- function(...) stop('stale acceptance cleared science')
+    for (mode in c('homologous', 'orthologous')) {
+        a <- f$e$request_search_run(mode)
+        b <- f$e$request_search_run(mode)
+        pending <- list(gene = 'GENEB', request_id = b$id)
+        if (mode == 'homologous') f$e$pendingHomoOrganismChange(pending) else f$e$pendingOrthoGeneChange(pending)
+        f$session$setInputs(cgv_search_confirmation_accepted = list(mode = mode, request_id = a$id))
+        f$session$setInputs(cgv_search_confirmation_accepted = list(
+            mode = setdiff(c('homologous', 'orthologous'), mode), request_id = b$id))
+        expect_true(f$e$search_request_is_current(mode, b$id))
+        expect_identical(f$e$lookups, 0L)
+    }
 })

@@ -187,7 +187,8 @@ init_server_state_helpers_domain <- function(
         identical(current$id, id) && (identical(current$status, "running") ||
             (isTRUE(terminal) && current$status %in% c("completed", "failed")))
     }
-    begin_search_run <- function(mode, fingerprint = "", duplicate_window_sec = 1.2, request_id = NULL) {
+    begin_search_run <- function(mode, fingerprint = "", duplicate_window_sec = 1.2, request_id = NULL,
+                                 source_key = "") {
         if (!isTRUE(session_alive())) return(list(ok = FALSE, reason = "closed"))
         state_info <- get_search_run_mode_state(mode)
         mode_key <- state_info$mode_key
@@ -210,6 +211,8 @@ init_server_state_helpers_domain <- function(
         mode_st$active <- TRUE
         mode_st$id <- if (is.null(request_id)) new_search_id() else request_id
         mode_st$status <- "running"
+        # Lifecycle metadata only; this never enters a scientific fingerprint.
+        mode_st$source_key <- source_key
         mode_st$fingerprint <- fp
         mode_st$children <- 0L
         mode_st$local_outcome <- NULL

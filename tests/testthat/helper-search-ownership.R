@@ -61,12 +61,13 @@ ownership_harness <- function(observers = TRUE) {
     e$orthoExternalRescueState$id <- ''
     e$stateHelpersDomain <- e$init_server_state_helpers_domain(e$autocompleteBuildEpochs, e$searchRunState,
         function() isTRUE(e$session_alive()))
-    for (name in c('begin_search_run', 'get_search_run_mode_state', 'owns_search_run',
+    for (name in c('get_search_run_mode_state', 'owns_search_run',
         'release_search_admission', 'start_search_child', 'cancel_autocomplete_background', 'parse_positive_int_env')) {
         e[[name]] <- e$stateHelpersDomain[[name]]
     }
     e$search_request_is_current <- e$stateHelpersDomain$search_request_is_current
-    for (name in c('request_search_run', 'take_search_event', 'search_operation_guard', 'search_future_promise', 'search_event_payload',
+    for (name in c('orthologous_search_source_key', 'begin_search_run',
+        'capture_orthologous_cancellation_owner', 'request_search_run', 'take_search_event', 'search_operation_guard', 'search_future_promise', 'search_event_payload',
         'bind_search_batch_owner', 'schedule_search_dispatch', 'cancel_search_operation',
         'preparation_state_for_mode', 'invalidate_search_preparation', 'check_search_preparation_gate',
         'set_batch_search_state', 'take_next_batch_gene', 'dispatch_next_batch_search',
@@ -127,7 +128,7 @@ ownership_harness <- function(observers = TRUE) {
             installed[[2L]] <- eval(ownership_assignment('ortho_search_obs'), e)
         }
         for (symbol in c('searchPreparationReadyHomo()', 'searchPreparationReadyOrtho()',
-            'confirm_homo_organism_change_btn', 'confirm_ortho_gene_change_btn',
+            'cgv_search_confirmation_accepted',
             'cgv_search_confirmation_closed', 'partial_gene_external_alias_search',
             'catalog_multigene_ready', 'catalog_cross_ready')) {
             for (node in ownership_observers(symbol)) installed[[length(installed) + 1L]] <- eval(node, e)
