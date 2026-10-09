@@ -163,7 +163,9 @@ test_that("the orthologous processor reuses successful prepass blocks", {
     server_txt <- paste(readLines(server_path, warn = FALSE), collapse = "\n")
     start <- regexpr("process_orthologous_lookup_results <- function", server_txt, fixed = TRUE)[[1L]]
     expect_gt(start, 0L)
-    tail_txt <- substring(server_txt, start)
+    # substring() defaults to an absolute 1,000,000-character end position.
+    # Keep this source-boundary assertion valid as orchestration grows.
+    tail_txt <- substring(server_txt, start, nchar(server_txt))
     finish_offset <- regexpr("finish_orthologous_local_phase <- function", tail_txt, fixed = TRUE)[[1L]]
     expect_gt(finish_offset, 0L)
     processor_txt <- substring(tail_txt, 1L, finish_offset - 1L)

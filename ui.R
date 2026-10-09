@@ -3790,6 +3790,15 @@ fluidPage(
         }
 
         if (window.Shiny && typeof Shiny.addCustomMessageHandler === 'function') {
+          // Closing a search confirmation retires only its pending request.
+          $(document).on('hidden.bs.modal', '#shiny-modal', function() {
+            var owner = this.querySelector('[data-cgv-search-request]');
+            if (!owner) return;
+            Shiny.setInputValue('cgv_search_confirmation_closed', {
+              mode: owner.getAttribute('data-cgv-search-mode'),
+              request_id: owner.getAttribute('data-cgv-search-request')
+            }, {priority: 'event'});
+          });
           Shiny.addCustomMessageHandler('clear_global_search_state', function(message) {
             clearAllSearchState();
           });
@@ -3798,16 +3807,18 @@ fluidPage(
             if (message && message.origin === 'genomic_neighbor') {
               setWorkflowPanel(null);
             }
-            var btn = document.getElementById('generate1');
-            if (btn) btn.click();
+            Shiny.setInputValue('cgv_homo_search_dispatch', {
+              request_id: message.request_id, dispatch_id: message.dispatch_id
+            }, {priority: 'event'});
           });
           // Retrigger orthologous search after gene-change confirmation
           Shiny.addCustomMessageHandler('cgv_trigger_ortho_search', function(message) {
             if (message && message.origin === 'genomic_neighbor') {
               setWorkflowPanel(null);
             }
-            var btn = document.getElementById('search_gene');
-            if (btn) btn.click();
+            Shiny.setInputValue('cgv_ortho_search_dispatch', {
+              request_id: message.request_id, dispatch_id: message.dispatch_id
+            }, {priority: 'event'});
           });
         }
 
