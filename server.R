@@ -870,7 +870,7 @@
         if (length(ids_chr) == 0L || length(transcript_blocks) == 0L) {
             return(invisible(FALSE))
         }
-        dispatch <- function() {
+        dispatch <- work_view_guard(function() {
             payloads <- build_plot_metrics_group_payloads(
                 context = context,
                 plot_ids = ids_chr,
@@ -886,7 +886,7 @@
             )
             cache_metrics_payloads(context = context, plot_ids = ids_chr, payloads = payloads, plot_signatures = plot_signatures)
             invisible(NULL)
-        }
+        })
         # Large groups used to monopolize the Shiny event loop before the first
         # visible card could paint. Keep every metric, but let the canonical card
         # and its sequence-composition footer reach the browser first. The paint
@@ -1503,6 +1503,23 @@
         }
         invisible(changed)
     }
+    # Work restoration advances both preparation generations. A change in only
+    # one mode must not suppress independent view work belonging to the other.
+    # Independent shared-cache producers continue; only obsolete session writes stop.
+    work_view_guard <- function(callback, cleanup = function() NULL) {
+        force(callback); force(cleanup)
+        tokens <- if (isTRUE(session_alive())) isolate(list(
+            homologous = searchPreparationTokenHomo(), orthologous = searchPreparationTokenOrtho())) else NULL
+        guarded <- session_guard(function(...) {
+            shiny::isolate({
+                if (is.null(tokens) || (!identical(tokens$homologous, searchPreparationTokenHomo()) &&
+                    !identical(tokens$orthologous, searchPreparationTokenOrtho()))) return(NULL)
+                callback(...)
+            })
+        })
+        function(...) {on.exit(cleanup(), add = TRUE); guarded(...)}
+    }
+
     secondary_work_initial_delay_sec <- app_env_int(
         "APP_SECONDARY_WORK_INITIAL_DELAY_MS",
         2500L,
@@ -4630,7 +4647,7 @@
             invisible(NULL)
         }
         if (!is.null(session) && is.function(session$onFlushed)) {
-            session$onFlushed(show_alias_modal, once = TRUE)
+            session$onFlushed(work_view_guard(show_alias_modal), once = TRUE)
         } else {
             show_alias_modal()
         }
@@ -4712,7 +4729,7 @@
             invisible(NULL)
         }
         if (!is.null(session) && is.function(session$onFlushed)) {
-            session$onFlushed(show_suggestions, once = TRUE)
+            session$onFlushed(work_view_guard(show_suggestions), once = TRUE)
         } else {
             show_suggestions()
         }
@@ -9536,17 +9553,17 @@
                                     } else {
                                         promises::future_promise({
                                             build_go_gaf_index(gaf_for_build, target, force = FALSE)
-                                        }, seed = TRUE) %...>% (session_guard(function(value) {
+                                        }, seed = TRUE) %...>% (work_view_guard(function(value) NULL, cleanup = function() {
                                             if (exists(build_key, envir = pendingGoIndexBuilds, inherits = FALSE)) {
                                                 rm(list = build_key, envir = pendingGoIndexBuilds)
                                             }
-                                            NULL
-                                        })) %...!% (session_guard(function(err) {
-                                            if (exists(build_key, envir = pendingGoIndexBuilds, inherits = FALSE)) {
-                                                rm(list = build_key, envir = pendingGoIndexBuilds)
-                                            }
+                                        })) %...!% (work_view_guard(function(err) {
                                             app_debug_log("[GO index] background build failed: ", conditionMessage(err))
                                             NULL
+                                        }, cleanup = function() {
+                                            if (exists(build_key, envir = pendingGoIndexBuilds, inherits = FALSE)) {
+                                                rm(list = build_key, envir = pendingGoIndexBuilds)
+                                            }
                                         }))
                                     }
                                 }, delay = 0.2)
@@ -9605,11 +9622,11 @@
                     worker_started <- app_perf_now()
                     promises::future_promise({
                         go_lookup_worker(go_entry, candidates, base_dir = ".")
-                    }, seed = TRUE) %...>% (session_guard(function(worker_result) {
+                    }, seed = TRUE) %...>% (work_view_guard(function(worker_result) {
                         app_perf_mark_ms(perf_run, "worker_total_ms", app_perf_elapsed_ms(worker_started), "GO_LOCAL")
                         finish_local_lookup(worker_result)
                         NULL
-                    })) %...!% (session_guard(function(err) {
+                    })) %...!% (work_view_guard(function(err) {
                         send_response(
                             tone = "error",
                             summary = "An unexpected error occurred while searching local GO annotations.",
@@ -9804,10 +9821,10 @@
                         )
                     )
                 })
-            }) %...>% (session_guard(function(response_payload) {
+            }) %...>% (work_view_guard(function(response_payload) {
                 send_go_popup_payload(response_payload)
                 NULL
-            })) %...!% (session_guard(function(e) {
+            })) %...!% (work_view_guard(function(e) {
                 send_go_popup_payload(build_response(
                     tone = "error",
                     summary = "An unexpected error occurred during the online GO lookup.",
@@ -9884,13 +9901,13 @@
                 page = page,
                 page_size = page_size,
                 sort_by = sort_by
-            ), packages = "httr2") %...>% (session_guard(function(result) {
+            ), packages = "httr2") %...>% (work_view_guard(function(result) {
                 result$request_id <- request_id
                 result$gene <- gene_str
                 result$organism <- organism_str
                 session$sendCustomMessage("papers_popup_data", result)
                 NULL
-            })) %...!% (session_guard(function(e) {
+            })) %...!% (work_view_guard(function(e) {
                 session$sendCustomMessage("papers_popup_data", list(
                     request_id = request_id,
                     hits = 0L,
@@ -10105,14 +10122,14 @@
 
             promises::future_promise({
                 fetch_organism_images_inaturalist(organism_str, aliases = org_aliases, max_photos = 9L)
-            }) %...>% (session_guard(function(result) {
+            }) %...>% (work_view_guard(function(result) {
                 # Cache the result
                 cur <- isolate(organism_images_cache())
                 cur[[organism_str]] <- result
                 organism_images_cache(cur)
                 session$sendCustomMessage("organism_images_data", result)
                 NULL
-            })) %...!% (session_guard(function(e) {
+            })) %...!% (work_view_guard(function(e) {
                 session$sendCustomMessage("organism_images_data", list(
                     organism = organism_str,
                     photos = list(),
@@ -10634,7 +10651,10 @@
         recalc_plot_ranges_orthologous_fn = recalc_plot_ranges_orthologous,
         summary_toggle_label_fn = summary_toggle_label,
         begin_session_source_restore_fn = begin_session_source_restore,
-        orthologous_source_key_fn = orthologous_search_source_key
+        orthologous_source_key_fn = orthologous_search_source_key,
+        before_restore_fn = function() invalidate_work_session_ownership(),
+        after_restore_fn = function(app) restore_work_session_search_locks(app),
+        restore_guard_fn = work_view_guard
     )
     snapshot_plot_records <- sessionSnapshotDomain$snapshot_plot_records
     build_work_session_snapshot <- sessionSnapshotDomain$build_work_session_snapshot
@@ -16364,6 +16384,67 @@
         contentType = "application/octet-stream"
     )
 
+    invalidate_work_session_ownership <- function() {
+        if (!isTRUE(session_alive())) return(invisible(FALSE))
+        owners <- isolate(searchRunState())
+        rescue_owner <- capture_orthologous_cancellation_owner()
+        for (mode in c("homologous", "orthologous")) {
+            pending <- stateHelpersDomain$get_search_request_id(mode)
+            id <- owners[[mode]]$id
+            if (!is.null(id)) cancel_search_operation(mode, id)
+            if (!is.null(pending)) cancel_search_operation(mode, pending)
+            stateHelpersDomain$retire_search_owner(mode, id)
+            invalidate_search_preparation(mode, ready = TRUE)
+        }
+        cancel_orthologous_background_rescue("work_session_restore", rescue_owner)
+        searchBatchOwner$generation <- searchBatchOwner$generation + 1
+        batchSearchMode(""); batchSearchRemaining(0L); batchSearchQueue(character())
+        reset_homo_batch_summary()
+        cancel_autocomplete_background("filter1"); cancel_autocomplete_background("gene_name")
+        cancel_homo_auto_render_queue(); cancel_ortho_auto_render_queue()
+        reset_ortho_first_paint_gate(NULL)
+        for (cache in list(pendingMetricsBuilds, pendingMetricsPlotIds)) {
+            keys <- ls(cache, all.names = TRUE)
+            if (length(keys)) rm(list = keys, envir = cache)
+        }
+        for (mode in c("homo", "ortho")) clear_cache_env_prefix(plotMetricsPayloadCache, paste0(mode, "::id::"))
+        pendingHomoSearchGene(NULL); pendingOrthoSearchGene(NULL)
+        pendingHomoSearchOrigin("local"); pendingOrthoSearchOrigin("local")
+        pendingOrthoReferenceAnchor(NULL); pendingPartialGeneAliasConfirmation(NULL)
+        pendingHomoOrganismChange(NULL); pendingOrthoGeneChange(NULL)
+        pendingPlotDeleteOwner(NULL); pendingPlotDeletePanel(""); pendingPlotDeleteId("")
+        # Reset existing view tokens; active alignment/cache producers are untouched.
+        homoPipLocalAlignmentState(list(status = "idle", runs = list(), contexts = list(), reference_id = "", query_ids = character(0), stamp = ""))
+        homoMultipipLocalAlignmentState(list(status = "idle", runs = list(), contexts = list(), reference_id = "", query_ids = character(0), stamp = ""))
+        if (exists("setPipLocalAlignmentStateOrthologous", mode = "function")) setPipLocalAlignmentStateOrthologous(reset = TRUE)
+        if (exists("setMultipipLocalAlignmentStateOrthologous", mode = "function")) setMultipipLocalAlignmentStateOrthologous(reset = TRUE)
+        stringNetworkRequestState$id <- ""
+        report_state <- get0("sharedAnalysisDomain", envir = environment(invalidate_work_session_ownership), inherits = FALSE)
+        if (!is.null(report_state)) {
+            pending_report <- isolate(report_state$pending)
+            report_state$pending <- NULL
+            report_state$busy <- FALSE
+            report_state$missing <- character(0)
+            report_state$error <- ""
+            report_state$alignment_request <- NULL
+            if (is.list(pending_report)) {
+                session$sendCustomMessage("cgv:restore-report-modes", list(request_id = pending_report$request_id))
+            }
+        }
+        invisible(TRUE)
+    }
+
+    restore_work_session_search_locks <- function(app) {
+        if (!isTRUE(session_alive())) return(invisible(FALSE))
+        meta <- isolate(plotGeneMetaOrthologous())[as.character(isolate(activePlotIdsOrthologous()))]
+        queries <- unique(unlist(lapply(meta, function(x) as.character(x$query_gene_input %||% x$query_gene %||% ""))))
+        queries <- queries[nzchar(queries)]
+        lastOrthoSearchedGene(if (length(queries) == 1L) queries[[1L]] else "")
+        lastConfirmedHomoDataMode(as.character(app$homo_data_mode %||% "preloaded"))
+        lastConfirmedHomoSpeciesId(as.character(app$homo_preloaded_species %||% ""))
+        invisible(TRUE)
+    }
+
     observeEvent(input$load_work_session_btn,
         {
             file_info <- input$upload_work_session
@@ -17412,6 +17493,7 @@
             if (!identical(restore_state, "none")) {
                 if (identical(restore_state, "complete")) {
                     lastObservedHomoSourceKey(homo_source_key)
+                    searchPreparationReadyHomo(TRUE)
                 }
                 return(invisible(NULL))
             }
@@ -17655,6 +17737,7 @@
             if (!identical(restore_state, "none")) {
                 if (identical(restore_state, "complete")) {
                     lastObservedOrthoSourceKey(ortho_source_key)
+                    searchPreparationReadyOrtho(TRUE)
                 }
                 return(invisible(NULL))
             }
@@ -22365,7 +22448,7 @@
             invisible(NULL)
         }
         if (!is.null(session) && is.function(session$onFlushed)) {
-            session$onFlushed(release_next_batch, once = TRUE)
+            session$onFlushed(work_view_guard(release_next_batch), once = TRUE)
         } else {
             release_next_batch()
         }
@@ -25439,7 +25522,7 @@
         }
 
         if (!is.null(session) && is.function(session$onFlushed)) {
-            session$onFlushed(function() bind_secondary(pending_ids), once = TRUE)
+            session$onFlushed(work_view_guard(function() bind_secondary(pending_ids)), once = TRUE)
         } else {
             bind_secondary(pending_ids)
         }
@@ -38125,7 +38208,7 @@
                     return(promises::promise_resolve(list(missing = character(0), pip_runs = list(), multipip_prepared = TRUE)))
                 }
 
-                return(promises::promise_all(.list = jobs) %...>% (session_guard(function(states) {
+                return(promises::promise_all(.list = jobs) %...>% (work_view_guard(function(states) {
                     states <- as.list(states %||% list())
                     missing_async <- character(0)
                     completed_for_report_async <- list()

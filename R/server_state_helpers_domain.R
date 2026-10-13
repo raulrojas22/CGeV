@@ -253,6 +253,26 @@ init_server_state_helpers_domain <- function(
         cancelled_run <- finish_search_run(mode, id, "cancelled")
         invisible(isTRUE(cancelled_request) || isTRUE(cancelled_run))
     }
+    # A confirmed replacement of the work state also retires terminal owners.
+    # Matching the captured ID prevents old restoration cleanup from retiring B.
+    retire_search_owner <- function(mode, id) {
+        if (!isTRUE(session_alive()) || is.null(id)) return(invisible(FALSE))
+        info <- get_search_run_mode_state(mode)
+        current <- info$mode_state
+        if (!identical(current$id, id)) return(invisible(FALSE))
+        if (identical(current$status, "running")) finish_search_run(mode, id, "cancelled")
+        info <- get_search_run_mode_state(mode)
+        current <- info$mode_state
+        if (!identical(current$id, id)) return(invisible(FALSE))
+        current$id <- NULL
+        current$last_fingerprint <- ""
+        current$last_completed <- 0
+        current$children <- 0L
+        info$state[[info$mode_key]] <- current
+        searchRunState_rv(info$state)
+        invisible(TRUE)
+    }
+
     # Local execution releases admission; an owned rescue can still be running.
     release_search_admission <- function(mode, id, outcome = "completed") {
         stopifnot(outcome %in% c("completed", "failed"))
@@ -424,6 +444,7 @@ init_server_state_helpers_domain <- function(
         take_search_event = take_search_event,
         owns_search_run = owns_search_run,
         cancel_search_run = cancel_search_run,
+        retire_search_owner = retire_search_owner,
         release_search_admission = release_search_admission,
         start_search_child = start_search_child,
         settle_search_child = settle_search_child,

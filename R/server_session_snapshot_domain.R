@@ -44,7 +44,10 @@ init_session_snapshot_domain <- function(
     recalc_plot_ranges_orthologous_fn,
     summary_toggle_label_fn,
     begin_session_source_restore_fn = NULL,
-    orthologous_source_key_fn = NULL
+    orthologous_source_key_fn = NULL,
+    before_restore_fn = NULL,
+    after_restore_fn = NULL,
+    restore_guard_fn = function(callback) callback
 ) {
     snapshot_data_root <- tryCatch(
         get_cgv_data_root("."),
@@ -262,9 +265,9 @@ init_session_snapshot_domain <- function(
         out
     }
 
-    restore_panel_from_snapshot <- function(panel_state, panel = c("homologous", "orthologous")) {
+    restore_panel_from_snapshot <- function(panel_state, panel = c("homologous", "orthologous"), normalized = NULL) {
         panel <- match.arg(panel)
-        normalized <- normalize_snapshot_plot_table(panel_state %||% list())
+        if (is.null(normalized)) normalized <- normalize_snapshot_plot_table(panel_state %||% list())
         ids_chr <- names(normalized)
         if (length(ids_chr) == 0) {
             if (identical(panel, "homologous")) {
@@ -627,22 +630,69 @@ init_session_snapshot_domain <- function(
         invisible(NULL)
     }
 
+    # Validate/normalize without publishing or retiring current work. The commit
+    # hook runs only after the snapshot is accepted, before any scientific writes.
+    prepare_work_session_snapshot <- function(snapshot_obj) {
+        snap <- snapshot_obj
+        if (!is.list(snap)) stop("Invalid session file format.")
+        schema <- suppressWarnings(as.integer(snap$schema_version %||% 0L))
+        if (length(schema) != 1L || !is.finite(schema) || !schema %in% c(1L, 2L)) stop("Unsupported session schema version.")
+        app <- snap$app %||% list()
+        if (!is.list(app)) stop("Invalid session app state.")
+        for (field in c("homo_data_mode", "ortho_data_mode", "homo_visual_mode", "ortho_visual_mode",
+            "homo_orientation_mode", "ortho_orientation_mode", "homo_sort_mode", "ortho_sort_mode",
+            "homo_preloaded_species", "figure_studio_state", "search_status_homo", "search_status_ortho",
+            "genome_source_homo", "genome_source_ortho", "preferred_workflow", "app_theme", "navtab",
+            "global_search_query", "global_search_query_collapsed", "filter1", "gene_name")) {
+            value <- as.character(app[[field]] %||% "")
+            if (length(value) != 1L || anyNA(value)) stop("Invalid session scalar: ", field)
+        }
+        parameters <- app$alignment_parameters %||% list()
+        if (!is.list(parameters)) stop("Invalid session alignment parameters.")
+        validate_controls <- function(controls) {
+            if (!is.list(controls)) stop("Invalid session alignment section.")
+            for (name in names(controls)) {
+                value <- controls[[name]]
+                if (name %in% c("aligned", "lastz", "multipip", "multi_gene")) validate_controls(value %||% list())
+                else if (name %in% c("anchor_track", "reference_track", "representative", "track_order", "span", "mode", "gene_group",
+                    "min_identity", "min_length", "min_segment_bp") && !is.null(value)) {
+                    converted <- if (name %in% c("min_identity", "min_length", "min_segment_bp")) suppressWarnings(as.numeric(value)) else as.character(value)
+                    if (length(converted) != 1L) stop("Invalid session alignment control: ", name)
+                }
+            }
+        }
+        validate_controls(parameters)
+        for (field in c("current_organism_homo", "current_organism_ortho")) {
+            if (!is.null(app[[field]]) && !is.list(app[[field]])) stop("Invalid session organism state.")
+        }
+        panels <- lapply(c("homologous", "orthologous"), function(panel) {
+            state <- snap[[panel]] %||% list()
+            if (!is.list(state) || (!is.null(state$plots) && !is.list(state$plots))) stop("Invalid session panel: ", panel)
+            if (!is.null(state$plot_counter) && length(suppressWarnings(as.integer(state$plot_counter))) != 1L) stop("Invalid session counter.")
+            for (plot in state$plots %||% list()) {
+                if (!is.list(plot) || (!is.null(plot$plot_data) && !is.data.frame(plot$plot_data))) stop("Invalid session plot data.")
+                for (field in c("plot_gene_meta", "organism_info", "plot_metrics")) {
+                    if (!is.null(plot[[field]]) && !is.list(plot[[field]])) stop("Invalid session plot metadata.")
+                }
+            }
+            normalize_snapshot_plot_table(state)
+        })
+        names(panels) <- c("homologous", "orthologous")
+        list(snapshot = snap, panels = panels)
+    }
+
     apply_work_session_snapshot <- function(snapshot_obj) {
-        snap <- snapshot_obj %||% list()
-        if (!is.list(snap)) {
-            stop("Invalid session file format.")
-        }
-        schema_version <- suppressWarnings(as.integer(snap$schema_version %||% 0L))
-        if (!is.finite(schema_version) || !schema_version %in% c(1L, 2L)) {
-            stop("Unsupported session schema version.")
-        }
+        prepared <- prepare_work_session_snapshot(snapshot_obj)
+        snap <- prepared$snapshot
+        if (is.function(before_restore_fn) && !isTRUE(before_restore_fn())) stop("Session closed before restoration.")
 
         apply_app_state_from_snapshot(snap$app %||% list())
-        restored_h <- restore_panel_from_snapshot(snap$homologous %||% list(), panel = "homologous")
-        restored_o <- restore_panel_from_snapshot(snap$orthologous %||% list(), panel = "orthologous")
+        restored_h <- restore_panel_from_snapshot(snap$homologous %||% list(), panel = "homologous", normalized = prepared$panels$homologous)
+        restored_o <- restore_panel_from_snapshot(snap$orthologous %||% list(), panel = "orthologous", normalized = prepared$panels$orthologous)
+        if (is.function(after_restore_fn)) after_restore_fn(snap$app %||% list())
         apply_summary_visibility_ui()
         visual_state <- snap$app %||% list()
-        session$onFlushed(function() {
+        session$onFlushed(restore_guard_fn(function() {
             homo_visual <- tolower(trimws(as.character(visual_state$homo_visual_mode %||% "compact")))
             ortho_visual <- tolower(trimws(as.character(visual_state$ortho_visual_mode %||% "compact")))
             if (homo_visual %in% c("pip_blocks", "pip_multipip")) homo_visual <- "aligned"
@@ -671,7 +721,7 @@ init_session_snapshot_domain <- function(
             if (nzchar(studio_state)) {
                 session$sendCustomMessage("cgv:figure-studio-restore", studio_state)
             }
-        }, once = TRUE)
+        }), once = TRUE)
 
         list(homologous = restored_h, orthologous = restored_o)
     }
@@ -684,6 +734,7 @@ init_session_snapshot_domain <- function(
         restore_species_grid_selection = restore_species_grid_selection,
         apply_summary_visibility_ui = apply_summary_visibility_ui,
         apply_app_state_from_snapshot = apply_app_state_from_snapshot,
+        prepare_work_session_snapshot = prepare_work_session_snapshot,
         apply_work_session_snapshot = apply_work_session_snapshot
     )
 }
