@@ -54,6 +54,7 @@ ownership_harness <- function(observers = TRUE) {
         'searchPreparationTokenHomo', 'searchPreparationTokenOrtho',
         'pendingPreparedSearchHomo', 'pendingPreparedSearchOrtho',
         'lastConfirmedHomoSpeciesId', 'lastConfirmedHomoDataMode', 'lastOrthoSearchedGene',
+        'orthoPreparedNcbiSourceIds',
         'pendingHomoOrganismChange', 'pendingOrthoGeneChange', 'orthoExternalRescueState')) {
         eval(ownership_assignment(name), e)
     }
