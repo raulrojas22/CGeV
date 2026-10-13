@@ -1321,6 +1321,8 @@
     ncbiQueueOrtho          <- reactiveVal(list())
     ncbiDownloadStatusOrtho <- reactiveVal(list(state = "idle", pct = 0, msg = ""))
     orthoPreparedNcbiOrganisms <- reactiveVal(list())
+    # Preparation identity uses queue accessions/registry IDs, never display labels.
+    orthoPreparedNcbiSourceIds <- reactiveVal(character(0))
     orthoPreparedUploadOrganisms <- reactiveVal(list())
     # Persist NCBI file paths so gene search can access them
     ncbiAnnotationPathHomo  <- reactiveVal(NULL)
@@ -1342,18 +1344,27 @@
     cancel_autocomplete_background <- stateHelpersDomain$cancel_autocomplete_background
     compose_autocomplete_still_valid <- stateHelpersDomain$compose_autocomplete_still_valid
     get_search_run_mode_state <- stateHelpersDomain$get_search_run_mode_state
-    orthologous_search_source_key <- function() {
+    # One producer for request/operation ownership, source history and preparation.
+    # Keep the existing mode::identifier|identifier convention, including order
+    # for prepared/uploaded sources; scientific metadata and cache keys are untouched.
+    orthologous_search_source_key <- function(mode = NULL, ncbi_ids = NULL, preloaded_ids = NULL) {
         if (!isTRUE(session_alive())) return(NULL)
         isolate({
-            mode <- as.character(input$ortho_data_mode %||% "")
-            detail <- if (mode %in% c("preloaded", "mixed")) {
-                paste(sort(unique(as.character(input$ortho_preloaded_species %||% character(0)))), collapse = "|")
-            } else if (identical(mode, "ncbi")) {
-                paste(names(orthoPreparedNcbiOrganisms() %||% list()), collapse = "|")
-            } else if (identical(mode, "upload")) {
-                paste(as.character(input$files$datapath %||% character(0)), collapse = "|")
-            } else ""
-            paste(mode, detail, sep = "::")
+            mode <- as.character(mode %||% input$ortho_data_mode %||% "")
+            sources <- character(0)
+            if (mode %in% c("preloaded", "mixed")) {
+                ids <- if (is.null(preloaded_ids)) input$ortho_preloaded_species else preloaded_ids
+                sources <- sort(unique(as.character(ids %||% character(0))))
+            }
+            if (mode %in% c("upload", "mixed")) {
+                sources <- c(sources, as.character(input$files$datapath %||% character(0)),
+                    as.character(input$genome_fasta_ortho$datapath %||% character(0)))
+            }
+            if (mode %in% c("ncbi", "mixed")) {
+                ids <- if (is.null(ncbi_ids)) orthoPreparedNcbiSourceIds() else ncbi_ids
+                sources <- c(sources, as.character(ids))
+            }
+            paste(mode, paste(sources, collapse = "|"), sep = "::")
         })
     }
     begin_search_run <- function(mode, fingerprint = "", duplicate_window_sec = 1.2, request_id = NULL) {
@@ -10526,6 +10537,7 @@
     }
 
     handle_ortho_source_change <- function(source_key, reason = "source change") {
+        if (!isTRUE(session_alive())) return(invisible(FALSE))
         source_key <- trimws(as.character(source_key %||% ""))
         if (!nzchar(source_key)) return(invisible(FALSE))
         old_key <- isolate(lastObservedOrthoSourceKey())
@@ -10621,7 +10633,8 @@
         recalc_plot_ranges_homologous_fn = recalc_plot_ranges_homologous,
         recalc_plot_ranges_orthologous_fn = recalc_plot_ranges_orthologous,
         summary_toggle_label_fn = summary_toggle_label,
-        begin_session_source_restore_fn = begin_session_source_restore
+        begin_session_source_restore_fn = begin_session_source_restore,
+        orthologous_source_key_fn = orthologous_search_source_key
     )
     snapshot_plot_records <- sessionSnapshotDomain$snapshot_plot_records
     build_work_session_snapshot <- sessionSnapshotDomain$build_work_session_snapshot
@@ -17227,11 +17240,12 @@
     observeEvent(input$ortho_ncbi_download_all_btn, {
         queue <- ncbiQueueOrtho()
         req(length(queue) > 0)
-        queue_key <- paste(vapply(queue, function(q) as.character(q$accession %||% q$preloaded_id %||% ""), character(1)), collapse = "|")
+        queue_ids <- vapply(queue, function(q) as.character(q$accession %||% q$preloaded_id %||% ""), character(1))
         handle_ortho_source_change(
-            paste("ncbi", queue_key, sep = "::"),
+            orthologous_search_source_key(ncbi_ids = queue_ids),
             reason = "loading NCBI organism set"
         )
+        orthoPreparedNcbiSourceIds(queue_ids)
         orthoPreparedNcbiOrganisms(list())
 
         det_list <- list()
@@ -17636,16 +17650,7 @@
             selection_state <- ortho_preloaded_selection_debounced()
             ortho_mode <- as.character(selection_state$mode %||% "")
             selected_preloaded_ids <- as.character(selection_state$ids %||% character(0))
-            ortho_key_detail <- if (ortho_mode %in% c("preloaded", "mixed")) {
-                paste(selected_preloaded_ids, collapse = "|")
-            } else if (identical(ortho_mode, "ncbi")) {
-                paste(names(isolate(orthoPreparedNcbiOrganisms()) %||% list()), collapse = "|")
-            } else if (identical(ortho_mode, "upload")) {
-                paste(as.character(input$files$datapath %||% character(0)), collapse = "|")
-            } else {
-                ""
-            }
-            ortho_source_key <- paste(ortho_mode, ortho_key_detail, sep = "::")
+            ortho_source_key <- orthologous_search_source_key(mode = ortho_mode, preloaded_ids = selected_preloaded_ids)
             restore_state <- consume_session_source_restore("orthologous", ortho_source_key)
             if (!identical(restore_state, "none")) {
                 if (identical(restore_state, "complete")) {
@@ -17949,17 +17954,8 @@
             lastObservedHomoSourceKey(paste(homo_mode, homo_key_detail, sep = "::"))
         } else if (identical(restored_input, "ortho_preloaded_species")) {
             ortho_mode <- as.character(isolate(input$ortho_data_mode) %||% "")
-            ortho_key_detail <- if (ortho_mode %in% c("preloaded", "mixed")) {
-                paste(sort(as.character(isolate(input$ortho_preloaded_species) %||% character(0))), collapse = "|")
-            } else if (identical(ortho_mode, "ncbi")) {
-                paste(names(isolate(orthoPreparedNcbiOrganisms()) %||% list()), collapse = "|")
-            } else if (identical(ortho_mode, "upload")) {
-                paste(as.character(isolate(input$files$datapath) %||% character(0)), collapse = "|")
-            } else {
-                ""
-            }
             finish_session_source_restore("orthologous")
-            lastObservedOrthoSourceKey(paste(ortho_mode, ortho_key_detail, sep = "::"))
+            lastObservedOrthoSourceKey(orthologous_search_source_key(mode = ortho_mode))
         }
         invisible(NULL)
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
@@ -17972,13 +17968,13 @@
             app_perf_mark(prep_perf, "skip: not upload mode", "ORG_UPLOAD_ORTHO")
             return(invisible(NULL))
         }
-        req(input$files)
         file_paths <- as.character(input$files$datapath)
         file_names <- as.character(input$files$name)
         handle_ortho_source_change(
-            paste("upload", paste(file_paths, collapse = "|"), sep = "::"),
+            orthologous_search_source_key(),
             reason = "loading uploaded organism files"
         )
+        req(input$files)
         set_popup_loading(
             TRUE,
             context = "Cross-Species Gene Search",
@@ -18085,12 +18081,14 @@
         }
 
         app_perf_mark(prep_perf, "done", "ORG_UPLOAD_ORTHO")
-    })
+    }, ignoreNULL = FALSE)
 
     observeEvent(input$genome_fasta_ortho, {
         if (!(as.character(input$ortho_data_mode %||% "") %in% c("upload", "mixed"))) {
             return(invisible(NULL))
         }
+        handle_ortho_source_change(orthologous_search_source_key(),
+            reason = "loading uploaded genome files")
         refresh_ortho_upload_source_label()
         up <- get_ortho_upload_vectors()
         genome_paths <- as.character(up$genome_paths %||% character(0))
@@ -18107,7 +18105,7 @@
             warm_genome_cache(genome_paths[k], status_rv = NULL, context_label = genome_names[k])
         }
         app_perf_mark(warm_perf, "genome cache warmed", "ORG_UPLOAD_ORTHO")
-    })
+    }, ignoreNULL = FALSE)
 
     # Confirm organism name (Orthologous upload)
     observeEvent(input$ortho_confirm_organism_btn, {

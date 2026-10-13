@@ -43,7 +43,8 @@ init_session_snapshot_domain <- function(
     recalc_plot_ranges_homologous_fn,
     recalc_plot_ranges_orthologous_fn,
     summary_toggle_label_fn,
-    begin_session_source_restore_fn = NULL
+    begin_session_source_restore_fn = NULL,
+    orthologous_source_key_fn = NULL
 ) {
     snapshot_data_root <- tryCatch(
         get_cgv_data_root("."),
@@ -467,7 +468,9 @@ init_session_snapshot_domain <- function(
             )
             begin_session_source_restore_fn(
                 "orthologous",
-                paste(mode_ortho, ortho_source_detail, sep = "::")
+                if (is.function(orthologous_source_key_fn)) {
+                    orthologous_source_key_fn(mode = mode_ortho, preloaded_ids = ortho_species)
+                } else paste(mode_ortho, ortho_source_detail, sep = "::")
             )
         }
 

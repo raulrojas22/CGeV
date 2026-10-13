@@ -21,7 +21,8 @@ main <- function() {
         'chr1\tfixture\tmRNA\t210\t240\t.\t+\t.\tID=tx3;Parent=gene-GENE3',
         'chr1\tfixture\texon\t210\t240\t.\t+\t.\tID=ex4;Parent=tx3')
     for (id in c('a', 'b', 'c')) {
-        writeLines(gff, file.path(data_root, 'annotations', paste0(id, '.gff3')))
+        writeLines(c(gff[1L], paste('##organism', c(a = 'Review alpha', b = 'Review beta', c = 'Review gamma')[[id]]), gff[-1L]),
+            file.path(data_root, 'annotations', paste0(id, '.gff3')))
         writeLines(c('>chr1', strrep('ACGT', 100)), file.path(data_root, 'genomes', paste0(id, '.fa')))
     }
     registry <- data.frame(species_id = c('a', 'b', 'c'),
@@ -31,6 +32,9 @@ main <- function() {
         annotation_tabix = '', annotation_index = '',
         genome = paste0('genomes/', c('a', 'b', 'c'), '.fa'), genome_2bit = '',
         aliases = 'fixture', icon = '/icons/DNA.ico', kingdom = 'Other')
+    if (scenario == 'source-ncbi-same-labels') {
+        registry$label[3L] <- registry$organism[3L] <- 'Review beta'
+    }
     write.table(registry, file.path(data_root, 'annotations/registry.tsv'),
         sep = '\t', quote = FALSE, row.names = FALSE)
     Sys.setenv(APP_FUTURE_MODE = 'sequential', APP_COMPILED_RUNTIME = '0',
@@ -40,6 +44,16 @@ main <- function() {
     setwd(root)
     source('global.R', local = .GlobalEnv)
     source('server.R', local = .GlobalEnv)
+    if (scenario %in% c('source-downloaded', 'source-partial')) {
+        # Fixed provider response; actual download preparation, mapping, lookup
+        # and plot publication run normally. Never contact NCBI in this fixture.
+        .GlobalEnv$ncbi_full_download_pipeline <- function(accession, ...) {
+            if (accession == 'failed') stop('controlled download failure')
+            id <- sub('download_', '', accession, fixed = TRUE)
+            list(annotation_tabix = file.path(data_root, 'annotations', paste0(id, '.gff3')),
+                genome = file.path(data_root, 'genomes', paste0(id, '.fa')), go_annotation = '')
+        }
+    }
     shiny::testServer(.cgv_server_definition, {
         messages <- list()
         send <- session$sendCustomMessage
@@ -105,7 +119,173 @@ main <- function() {
         session$elapse(600); wait_ready()
         search(); cards()
 
-        if (scenario == 'rapid-selection') {
+        prepare_count <- 0L
+        prepare_ncbi <- function(ids, mode = 'ncbi') {
+            if (!identical(input$ortho_data_mode, mode)) {
+                session$setInputs(ortho_data_mode = mode)
+                session$elapse(600); wait_ready()
+            }
+            while (length(ncbiQueueOrtho())) session$setInputs(ortho_ncbi_remove_queue = 1)
+            for (id in ids) {
+                if (scenario %in% c('source-downloaded', 'source-partial') && id != 'a') {
+                    accession <- paste0('download_', id)
+                    ncbiSearchResultsOrtho(data.frame(accession = accession,
+                        organism = registry$organism[match(id, registry$species_id)], taxid = 0L,
+                        genome_size_mb = 0, has_annotation = TRUE))
+                    session$setInputs(ortho_ncbi_add_organism = accession)
+                } else session$setInputs(ortho_ncbi_add_preloaded = id)
+            }
+            if (scenario == 'source-partial') {
+                ncbiSearchResultsOrtho(data.frame(accession = 'failed', organism = 'Failed organism',
+                    taxid = 0L, genome_size_mb = 0, has_annotation = TRUE))
+                session$setInputs(ortho_ncbi_add_organism = 'failed')
+            }
+            prepare_count <<- prepare_count + 1L
+            session$setInputs(ortho_ncbi_download_all_btn = prepare_count)
+            wait_ready()
+        }
+        upload_sources <- function(ids) {
+            make_input <- function(kind) {
+                paths <- file.path(data_root, if (kind == 'ann') 'annotations' else 'genomes',
+                    paste0(ids, if (kind == 'ann') '.gff3' else '.fa'))
+                data.frame(name = basename(paths), size = file.info(paths)$size, type = '', datapath = paths)
+            }
+            session$setInputs(ortho_data_mode = 'upload', files = make_input('ann'),
+                genome_fasta_ortho = make_input('gen'))
+            session$elapse(600); wait_ready()
+        }
+        owned_source <- function(label) {
+            a <- begin_search_run('orthologous', label, duplicate_window_sec = 0)
+            stopifnot(isTRUE(a$ok))
+            outcome <- new.env(parent = emptyenv()); outcome$ran <- FALSE; outcome$cleaned <- 0L
+            science <- fileDataOrthologous()
+            late <- search_operation_guard('orthologous', a$id, function() {
+                outcome$ran <- TRUE; fileDataOrthologous(science)
+            }, cleanup = function() outcome$cleaned <- outcome$cleaned + 1L)
+            settle <- start_search_child('orthologous', a$id)
+            owner <- capture_orthologous_cancellation_owner()
+            release_search_admission('orthologous', a$id)
+            list(id = a$id, late = late, settle = settle, outcome = outcome, owner = owner,
+                key = get_search_run_mode_state('orthologous')$mode_state$source_key)
+        }
+        stale_source <- function(a) {
+            before <- fileDataOrthologous(); state <- get_search_run_mode_state('orthologous')$mode_state
+            a$late(); a$settle(); a$settle()
+            stopifnot(!a$outcome$ran, a$outcome$cleaned == 1L,
+                !owns_search_run('orthologous', a$id), identical(fileDataOrthologous(), before),
+                identical(get_search_run_mode_state('orthologous')$mode_state, state))
+        }
+        if (startsWith(scenario, 'source-')) {
+            if (scenario %in% c('source-upload', 'source-upload-genome', 'source-upload-delete')) {
+                upload_sources(c('a', 'b')); search(); cards()
+                a <- owned_source('uploaded-A')
+                if (scenario == 'source-upload') {
+                    upload_sources(c('a', 'c')); search(); cards(c('Review alpha', 'Review gamma'))
+                } else if (scenario == 'source-upload-genome') {
+                    paths <- file.path(data_root, 'genomes', paste0(c('a', 'c'), '.fa'))
+                    session$setInputs(genome_fasta_ortho = data.frame(name = basename(paths),
+                        size = file.info(paths)$size, type = '', datapath = paths))
+                    stopifnot(identical(get_search_run_mode_state('orthologous')$mode_state$status, 'cancelled'))
+                } else {
+                    session$setInputs(files = NULL)
+                    stopifnot(identical(get_search_run_mode_state('orthologous')$mode_state$status, 'cancelled'))
+                }
+                stale_source(a)
+            } else {
+                prepare_ncbi(c('a', 'b')); search(); cards()
+                a <- owned_source('prepared-A')
+                if (scenario == 'source-draft') {
+                    session$setInputs(ortho_ncbi_remove_queue = 2)
+                    session$setInputs(ortho_ncbi_add_preloaded = 'c')
+                    published <- FALSE
+                    live <- search_operation_guard('orthologous', a$id, function() {published <<- TRUE})
+                    live(); stopifnot(published, owns_search_run('orthologous', a$id))
+                    cards() # Editing the draft queue does not replace prepared scientific sources.
+                }
+                if (scenario == 'source-teardown') {
+                    session$setInputs(ortho_ncbi_remove_queue = 2, ortho_ncbi_add_preloaded = 'c')
+                    key <- orthologous_search_source_key(ncbi_ids = c('a', 'c'))
+                    session$close()
+                    stopifnot(is.null(orthologous_search_source_key()),
+                        identical(handle_ortho_source_change(key), FALSE))
+                    a$late(); a$settle(); a$settle()
+                    stopifnot(!a$outcome$ran, a$outcome$cleaned == 1L)
+                } else if (scenario == 'source-mixed') {
+                    session$setInputs(ortho_preloaded_species = 'a')
+                    prepare_ncbi('b', mode = 'mixed'); search(); cards()
+                    stale_source(a)
+                    m <- owned_source('mixed-A')
+                    prepare_ncbi('c', mode = 'mixed'); search(); cards(c('Review alpha', 'Review gamma'))
+                    stale_source(m)
+                } else {
+                    prepare_ncbi(c('a', 'c'))
+                    stopifnot(identical(get_search_run_mode_state('orthologous')$mode_state$status, 'cancelled'))
+                    if (scenario == 'source-ncbi-same-labels') {
+                        search(); cards()
+                        stopifnot(any(grepl('/c.gff3$', unlist(annotationPathsOrthologous()))))
+                    } else if (scenario == 'source-rapid') {
+                        execute_orthologous_search('TP53'); request <- stateHelpersDomain$get_search_request_id('orthologous')
+                        prepare_ncbi(c('b', 'c'))
+                        stopifnot(!search_request_is_current('orthologous', request))
+                        search(); cards(c('Review beta', 'Review gamma'))
+                    } else {
+                        search(); cards(c('Review alpha', 'Review gamma'))
+                    }
+                    if (scenario == 'source-new-owner') {
+                        b <- begin_search_run('orthologous', 'new-owner-B', duplicate_window_sec = 0)
+                        before <- get_search_run_mode_state('orthologous')$mode_state
+                        cancel_orthologous_background_rescue('late_old_source',
+                            capture_orthologous_cancellation_owner(source_key = a$key))
+                        cancel_orthologous_background_rescue('late_captured_owner', a$owner)
+                        stopifnot(owns_search_run('orthologous', b$id), identical(before,
+                            get_search_run_mode_state('orthologous')$mode_state))
+                    }
+                    stale_source(a)
+                    if (scenario == 'source-repeated') {
+                        for (ids in list(c('b', 'c'), c('a', 'b'), c('a', 'c'))) {
+                            previous <- owned_source(paste(ids, collapse = '-'))
+                            prepare_ncbi(ids)
+                            search(); cards(registry$organism[match(ids, registry$species_id)])
+                            stale_source(previous)
+                        }
+                    } else if (scenario == 'source-return') {
+                        prepare_ncbi(c('a', 'b'))
+                        cards() # Restored valid source-history science, without a new search.
+                        stopifnot(!owns_search_run('orthologous', a$id))
+                        a$late(); stopifnot(!a$outcome$ran); cards()
+                        apply_app_state_from_snapshot(list(ortho_data_mode = 'ncbi',
+                            homo_data_mode = 'upload', ortho_preloaded_species = character(0)))
+                        session$setInputs(cgv_session_source_restored = list(input_id = 'ortho_preloaded_species'))
+                        stopifnot(identical(consume_session_source_restore('orthologous', orthologous_search_source_key()), 'none'))
+                    }
+                }
+            }
+            cat('SOURCE OWNERSHIP AND REAL SCIENTIFIC PUBLICATION VERIFIED ', scenario, '\n', sep = '')
+        } else if (scenario == 'ncbi-source-replacement') {
+            session$setInputs(ortho_data_mode = 'ncbi')
+            session$elapse(600); wait_ready()
+            session$setInputs(ortho_ncbi_add_preloaded = 'a')
+            session$setInputs(ortho_ncbi_add_preloaded = 'b')
+            session$setInputs(ortho_ncbi_download_all_btn = 1)
+            wait_ready()
+            search(); cards()
+            a <- begin_search_run('orthologous', 'ncbi-A', duplicate_window_sec = 0)
+            settle <- start_search_child('orthologous', a$id)
+            release_search_admission('orthologous', a$id)
+            stored <- lastObservedOrthoSourceKey()
+            operation <- get_search_run_mode_state('orthologous')$mode_state$source_key
+            old_ran <- FALSE
+            late <- search_operation_guard('orthologous', a$id, function() {old_ran <<- TRUE})
+            session$setInputs(ortho_ncbi_remove_queue = 2)
+            session$setInputs(ortho_ncbi_add_preloaded = 'c')
+            session$setInputs(ortho_ncbi_download_all_btn = 2)
+            late()
+            cat('stored_source =', stored, 'operation_source =', operation,
+                'operation_status =', get_search_run_mode_state('orthologous')$mode_state$status,
+                'old_continuation_executed =', old_ran, '\n')
+            stopifnot(identical(get_search_run_mode_state('orthologous')$mode_state$status, 'cancelled'), !old_ran)
+            settle(); search(); cards(c('Review alpha', 'Review gamma'))
+        } else if (scenario == 'rapid-selection') {
             session$setInputs(ortho_preloaded_species = c('a', 'c'))
             search()
             queued <- pendingPreparedSearchOrtho()

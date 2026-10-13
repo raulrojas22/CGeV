@@ -2,7 +2,10 @@
 # future-plan and package-attachment interference with the rest of testthat.
 cancellation_root <- normalizePath(if (file.exists('server.R')) '.' else '../..')
 for (scenario in c('rapid-selection', 'stale-delete', 'valid-delete', 'old-source-owner',
-                   'owned-delete-cancellation', 'repeat-and-replace', 'cross-mode', 'confirmation-generation')) {
+                   'owned-delete-cancellation', 'repeat-and-replace', 'cross-mode', 'confirmation-generation',
+                   'ncbi-source-replacement', 'source-repeated', 'source-ncbi-same-labels', 'source-mixed',
+                   'source-upload', 'source-upload-genome', 'source-upload-delete', 'source-rapid',
+                   'source-new-owner', 'source-return', 'source-teardown', 'source-downloaded', 'source-partial', 'source-draft')) {
     local({
         case <- scenario
         testthat::test_that(paste('complete server cancellation ownership:', case), {
