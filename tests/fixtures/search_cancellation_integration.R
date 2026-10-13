@@ -54,6 +54,13 @@ main <- function() {
                 genome = file.path(data_root, 'genomes', paste0(id, '.fa')), go_annotation = '')
         }
     }
+    if (scenario == 'restore-report') {
+        .GlobalEnv$.audit_original_shared <- get('init_shared_analysis_domain',mode='function')
+        .GlobalEnv$init_shared_analysis_domain <- function(...) {
+            args<-list(...);.GlobalEnv$.audit_report_lastz<-args$run_lastz_fn
+            .GlobalEnv$.audit_original_shared(...)
+        }
+    }
     shiny::testServer(.cgv_server_definition, {
         messages <- list()
         send <- session$sendCustomMessage
@@ -175,7 +182,243 @@ main <- function() {
                 !owns_search_run('orthologous', a$id), identical(fileDataOrthologous(), before),
                 identical(get_search_run_mode_state('orthologous')$mode_state, state))
         }
-        if (startsWith(scenario, 'source-')) {
+        if (scenario %in% c('restore-queued','restore-worker-error','restore-new-search','restore-repeat','restore-batch','restore-malformed','restore-read-error','restore-closed','restore-schema1')) {
+            session$setInputs(ortho_preloaded_species = c('a', 'c')); session$elapse(600); wait_ready()
+            search('GENE2'); cards(c('Review alpha','Review gamma'), 'GENE2', c(120,180), '-')
+            saved <- build_work_session_snapshot(); path <- file.path(data_root, 'saved.rds')
+            if (scenario == 'restore-schema1') saved$schema_version <- 1L
+            saveRDS(saved, path)
+            session$setInputs(ortho_preloaded_species = c('a', 'b')); session$elapse(600); wait_ready()
+            workers <- list(); released <- file.path(data_root, 'release')
+            on.exit({writeLines('release', released); for(w in workers) w$wait(10000)}, add=TRUE)
+            target <- environment(search_future_promise); original_future <- search_future_promise
+            assign('search_future_promise', function(mode, id, expr, ..., envir=parent.frame()) {
+                expression <- substitute(expr); job <- get('job', envir=envir, inherits=TRUE)
+                index <- length(workers)+1L; spec <- file.path(data_root,paste0('job',index,'.rds'))
+                result <- file.path(data_root,paste0('result',index,'.rds'))
+                saveRDS(list(expr=expression,job=job,fail=scenario=='restore-worker-error'),spec)
+                workers[[index]] <<- processx::process$new(file.path(R.home('bin'),'Rscript'),
+                    c(file.path(root, 'tests/fixtures/search_restoration_worker.R'),root,spec,released,result),
+                    stdout=file.path(data_root,paste0('worker',index,'.log')),stderr='2>&1')
+                promises::promise(function(resolve,reject) {
+                    poll <- function() {
+                        if(file.exists(result)) {
+                            x <- readRDS(result); stopifnot(x$pid != Sys.getpid())
+                            if(inherits(x$value,'error')) reject(x$value) else resolve(x$value)
+                        } else later::later(poll,.01)
+                    }; poll()
+                })
+            },envir=target)
+            Sys.setenv(APP_ORTHO_LOCAL_PROGRESSIVE='1')
+            clear_orthologous_visualizations(); lastOrthoSearchedGene('')
+            if (scenario == 'restore-batch') {
+                set_batch_search_state('orthologous',2L); queue_global_batch_search(c('GENE3','TP53'),'orthologous')
+                deadline<-Sys.time()+3
+                while(!length(Filter(function(x)x$type=='cgv_trigger_ortho_search',messages))&&Sys.time()<deadline) {later::run_now(.05);session$flushReact()}
+                acknowledge()
+            } else search('GENE3')
+            a <- get_search_run_mode_state('orthologous')$mode_state$id
+            stopifnot(length(workers)==2L,owns_search_run('orthologous',a))
+            if (scenario == 'restore-malformed') {
+                invalid <- rep(list(saved),6L)
+                invalid[[1]]$app <- 'invalid'
+                invalid[[2]]$app$preferred_workflow <- c('homologous','orthologous')
+                invalid[[3]]$app$alignment_parameters$lastz$min_identity <- c(20,90)
+                invalid[[4]]$orthologous$plots[[1]]$plot_data <- 'invalid'
+                invalid[[5]]$orthologous$plot_counter <- c(1,2)
+                invalid[[6]]$app$preferred_workflow <- NA_character_
+                for (bad in invalid) {
+                    saveRDS(bad,path)
+                    session$setInputs(upload_work_session=data.frame(datapath=path),load_work_session_btn=sample.int(100000,1))
+                    stopifnot(owns_search_run('orthologous',a),length(activePlotIdsOrthologous())==0L)
+                }
+            }
+            if (scenario == 'restore-read-error') writeLines('not an RDS file',path)
+            if (scenario == 'restore-closed') {
+                session$close()
+                stopped <- tryCatch({apply_work_session_snapshot(saved);FALSE},error=function(e) TRUE)
+                stopifnot(stopped)
+            } else {
+                session$setInputs(upload_work_session=data.frame(datapath=path),load_work_session_btn=1)
+                if(scenario=='restore-repeat') session$setInputs(load_work_session_btn=2)
+                if (!scenario %in% c('restore-malformed','restore-read-error')) {
+                    cards(c('Review alpha','Review gamma'), 'GENE2', c(120,180), '-')
+                    stopifnot(!owns_search_run('orthologous',a))
+                } else stopifnot(owns_search_run('orthologous',a))
+            }
+                if(scenario=='restore-new-search') {
+                    assign('search_future_promise',original_future,envir=target); Sys.setenv(APP_ORTHO_LOCAL_PROGRESSIVE='0')
+                    session$setInputs(ortho_preloaded_species=c('a','c'),
+                        cgv_session_source_restored=list(input_id='ortho_preloaded_species'))
+                    session$elapse(600);wait_ready()
+                    search('GENE3'); pending<-pendingOrthoGeneChange()
+                    stopifnot(is.list(pending))
+                    session$setInputs(cgv_search_confirmation_accepted=list(mode='orthologous',request_id=pending$request_id))
+                    acknowledge(); cards(c('Review alpha','Review gamma'),'GENE3',c(210,240),'+')
+                }
+            new_owner <- if(scenario=='restore-new-search') get_search_run_mode_state('orthologous')$mode_state else NULL
+            before_status <- searchStatusOrthologous()
+            cat('BEFORE LATE SETTLEMENT cards=',length(activePlotIdsOrthologous()),' status=',get_search_run_mode_state('orthologous')$mode_state$status,'\n')
+            writeLines('release',released)
+            for(w in workers) {w$wait(15000);stopifnot(!w$is_alive(),w$get_exit_status()==0L)}
+            for(index in seq_along(workers)) {
+                result<-readRDS(file.path(data_root,paste0('result',index,'.rds')))
+                stopifnot(result$pid!=Sys.getpid())
+                if(scenario=='restore-worker-error') stopifnot(inherits(result$value,'error'),identical(conditionMessage(result$value),'controlled late worker failure'))
+                else stopifnot(isTRUE(result$value$found),identical(range(as.numeric(result$value$data$V4),as.numeric(result$value$data$V5)),c(210,240)))
+            }
+            for(i in 1:30) {later::run_now(.02);session$flushReact()}
+            cat('AFTER LATE SETTLEMENT cards=',length(activePlotIdsOrthologous()),
+                ' genes=',paste(vapply(plotGeneMetaOrthologous()[as.character(activePlotIdsOrthologous())],function(x)x$display_gene_name,character(1)),collapse=','),'\n')
+            if (scenario %in% c('restore-malformed','restore-read-error')) cards(c('Review alpha','Review beta'), 'GENE3', c(210,240), '+')
+            else if (scenario != 'restore-closed') {
+                if(scenario=='restore-new-search') {
+                    cards(c('Review alpha','Review gamma'),'GENE3',c(210,240),'+')
+                    stopifnot(identical(new_owner,get_search_run_mode_state('orthologous')$mode_state))
+                } else cards(c('Review alpha','Review gamma'), 'GENE2', c(120,180), '-')
+                stopifnot(identical(searchStatusOrthologous(),before_status))
+                if(scenario=='restore-batch') stopifnot(length(batchSearchQueue())==0L,batchSearchRemaining()==0L)
+
+            }
+        } else if (scenario %in% c('restore-pending-h','restore-pending-o','restore-external-queued','restore-view-callbacks','restore-isolation','restore-benchmark','restore-stale-source-ack','restore-external-settle','restore-external-error','restore-report')) {
+            session$setInputs(ortho_preloaded_species=c('a','c'));session$elapse(600);wait_ready()
+            search('GENE2');cards(c('Review alpha','Review gamma'),'GENE2',c(120,180),'-')
+            saved <- build_work_session_snapshot();path<-file.path(data_root,'restore.rds');saveRDS(saved,path)
+            load <- function() session$setInputs(upload_work_session=data.frame(datapath=path),load_work_session_btn=1)
+            if (scenario %in% c('restore-pending-h','restore-pending-o')) {
+                mode<-if(scenario=='restore-pending-h') 'homologous' else 'orthologous'
+                if(mode=='homologous') {
+                    session$setInputs(homo_data_mode='preloaded',homo_preloaded_species='b')
+                    deadline<-Sys.time()+10
+                    while(!searchPreparationReadyHomo()&&Sys.time()<deadline){later::run_now(.05);session$flushReact()}
+                    stopifnot(searchPreparationReadyHomo())
+                }
+                invalidate_search_preparation(mode,ready=FALSE)
+                if(mode=='homologous')execute_homologous_search('GENE3') else execute_orthologous_search('GENE3')
+                type<-if(mode=='homologous')'cgv_trigger_homo_search' else 'cgv_trigger_ortho_search'
+                ticket<-tail(Filter(function(x)x$type==type,messages),1)[[1]]$payload
+                if(mode=='homologous')session$setInputs(cgv_homo_search_dispatch=ticket) else session$setInputs(cgv_ortho_search_dispatch=ticket)
+                stopifnot(search_request_is_current(mode,ticket$request_id))
+                load();stopifnot(!search_request_is_current(mode,ticket$request_id))
+                if(mode=='homologous') searchPreparationReadyHomo(TRUE)
+                if(mode=='homologous')session$setInputs(cgv_homo_search_dispatch=ticket) else session$setInputs(cgv_ortho_search_dispatch=ticket)
+                later::run_now(.2);session$flushReact()
+                cards(c('Review alpha','Review gamma'),'GENE2',c(120,180),'-')
+                stopifnot(length(activePlotIdsHomologous())==0L,length(fileDataHomologous())==0L)
+            } else if(scenario=='restore-external-queued') {
+                clear_orthologous_visualizations();lastOrthoSearchedGene('')
+                submissions<-0L; target<-environment(search_future_promise)
+                assign('search_future_promise',function(...) {submissions<<-submissions+1L;stop('obsolete rescue submitted')},envir=target)
+                search('MISSING'); a<-get_search_run_mode_state('orthologous')$mode_state$id
+                stopifnot(owns_search_run('orthologous',a))
+                load();later::run_now(1.5);session$flushReact()
+                stopifnot(submissions==0L,!owns_search_run('orthologous',a))
+                cards(c('Review alpha','Review gamma'),'GENE2',c(120,180),'-')
+            } else if(scenario=='restore-report') {
+                session$setInputs(ortho_preloaded_species=c('a','b'));session$elapse(600);wait_ready()
+                clear_orthologous_visualizations();lastOrthoSearchedGene('');search('GENE3')
+                cards(c('Review alpha','Review beta'),'GENE3',c(210,240),'+')
+                report_lastz <- .GlobalEnv$.audit_report_lastz
+                stopifnot(is.function(report_lastz))
+                holds<-list()
+                assign('run_canonical_lastz_contexts_async',function(...) promises::promise(function(resolve,reject) holds[[length(holds)+1L]]<<-list(resolve=resolve,reject=reject)),envir=environment(report_lastz))
+                pending <- report_lastz('ortho');stopifnot(length(holds)>0L)
+                sharedAnalysisDomain$pending <- list(request_id='outgoing-report',phase='lastz')
+                sharedAnalysisDomain$busy <- TRUE
+                sharedAnalysisDomain$alignment_request <- list(workflow='ortho',mode='blocks')
+                sharedAnalysisDomain$result <- list(token='existing-valid-report')
+                load();before<-pipLocalAlignmentStateOrthologous();before_multi<-multipipLocalAlignmentStateOrthologous()
+                for(hold in holds) hold$resolve(list(status='done',runs=list(old_worker=list(status='ok',blocks=data.frame())),stamp='GENE3-worker'))
+                for(i in 1:30){later::run_now(.02);session$flushReact()}
+                cat('REPORT_AFTER_RESTORE pending=',!is.null(sharedAnalysisDomain$pending),' old_alignment_published=',!identical(before,pipLocalAlignmentStateOrthologous()),'\n')
+                stopifnot(is.null(sharedAnalysisDomain$pending),is.null(sharedAnalysisDomain$alignment_request),!sharedAnalysisDomain$busy,identical(before,pipLocalAlignmentStateOrthologous()),identical(before_multi,multipipLocalAlignmentStateOrthologous()))
+                session$setInputs(cgv_analysis_assets=list(request_id='outgoing-report',assets=list(),missing=character()))
+                stopifnot(identical(sharedAnalysisDomain$result,list(token='existing-valid-report')))
+                cards(c('Review alpha','Review gamma'),'GENE2',c(120,180),'-')
+            } else if(scenario %in% c('restore-external-settle','restore-external-error')) {
+                session$setInputs(ortho_preloaded_species=c('a','b'));session$elapse(600);wait_ready()
+                clear_orthologous_visualizations();lastOrthoSearchedGene('')
+                holds<-list();target<-environment(search_future_promise)
+                assign('search_future_promise',function(mode,id,expr,...,envir=parent.frame()) {
+                    jobs<-get('chunk_jobs',envir=envir,inherits=TRUE)
+                    # Fixed alias-provider outcome; actual GFF/sequence producers
+                    # supply the scientific payload accepted by the real rescue.
+                    results<-lapply(jobs,function(job) {
+                        job$gene_name<-'GENE3';job$enabled_external_sources<-character();job$allow_partial_suggestions<-FALSE
+                        run_orthologous_lookup_job_pure(job)
+                    })
+                    stopifnot(all(vapply(results,function(x)isTRUE(x$found),logical(1))))
+                    promises::promise(function(resolve,reject) holds[[length(holds)+1L]]<<-list(resolve=resolve,reject=reject,results=results))
+                },envir=target)
+                search('MISSING');deadline<-Sys.time()+5
+                while(!length(holds)&&Sys.time()<deadline){later::run_now(.05);session$flushReact()}
+                a<-get_search_run_mode_state('orthologous')$mode_state$id
+                stopifnot(length(holds)>0L,owns_search_run('orthologous',a))
+                load();before<-fileDataOrthologous();status<-searchStatusOrthologous()
+                for(hold in holds) if(scenario=='restore-external-error') hold$reject(simpleError('late rescue error')) else hold$resolve(hold$results)
+                for(i in 1:30){later::run_now(.02);session$flushReact()}
+                stopifnot(!owns_search_run('orthologous',a),identical(before,fileDataOrthologous()),identical(status,searchStatusOrthologous()))
+                cards(c('Review alpha','Review gamma'),'GENE2',c(120,180),'-')
+            } else if(scenario=='restore-stale-source-ack') {
+                load()
+                session$setInputs(ortho_preloaded_species=c('b','c'))
+                stopifnot(!searchPreparationReadyOrtho())
+                session$setInputs(cgv_session_source_restored=list(input_id='ortho_preloaded_species'))
+                stopifnot(!searchPreparationReadyOrtho())
+                session$elapse(600);wait_ready()
+                search('GENE3')
+                pending<-pendingOrthoGeneChange()
+                if(is.list(pending)) {
+                    session$setInputs(cgv_search_confirmation_accepted=list(mode='orthologous',request_id=pending$request_id))
+                    acknowledge()
+                }
+                cards(c('Review beta','Review gamma'),'GENE3',c(210,240),'+')
+            } else if(scenario=='restore-view-callbacks') {
+                clear_orthologous_visualizations();lastOrthoSearchedGene('');search('GENE3')
+                cards(c('Review alpha','Review gamma'),'GENE3',c(210,240),'+')
+                published<-FALSE; cleaned<-0L
+                late<-work_view_guard(function() {published<<-TRUE; fileDataOrthologous(list())},cleanup=function()cleaned<<-cleaned+1L)
+                old<-fileDataOrthologous()[[1]];ids<-vapply(saved$orthologous$plots,function(x)x$id,character(1))
+                expected_old<-build_plot_metrics_group_payloads('ortho',ids,rep(list(old),length(ids)),representative_name='old gene',annotation_path=file.path(data_root,'annotations/a.gff3'))
+                stopifnot(length(expected_old)>0L)
+                schedule_plot_metrics_payload_build('ortho',ids,rep(list(old),length(ids)),representative_name='old gene',annotation_path=file.path(data_root,'annotations/a.gff3'))
+                schedule_plot_metrics_payload_build('ortho',as.character(1:30),rep(list(old),30),representative_name='old gene',perf_run=list(id='old-metrics'),annotation_path=file.path(data_root,'annotations/a.gff3'))
+                apply_work_session_snapshot(saved);metric_before<-plotMetricsOrthologous()
+                stopifnot(!dispatch_pending_metrics_build('old-metrics'))
+                late();deadline<-Sys.time()+.3
+                while(Sys.time()<deadline){later::run_now(.02);session$flushReact()}
+                stopifnot(!published,cleaned==1L,identical(metric_before,plotMetricsOrthologous()))
+                cards(c('Review alpha','Review gamma'),'GENE2',c(120,180),'-')
+            } else if (scenario=='restore-benchmark') {
+                size_before<-as.numeric(object.size(searchRunState()))
+                elapsed<-replicate(7,system.time(for(i in 1:100)invalidate_work_session_ownership())[['elapsed']]*10)
+                size_after<-as.numeric(object.size(searchRunState()))
+                stopifnot(size_after<=size_before,length(ls(pendingMetricsBuilds))==0L,length(ls(pendingMetricsPlotIds))==0L)
+                cat('RETIREMENT ms_per_call median=',median(elapsed),' range=',paste(range(elapsed),collapse='..'),' state_bytes_before=',size_before,' after=',size_after,' calls=700\n')
+            } else {
+                restoring_session<-session
+                peer <- shiny::MockShinySession$new()
+                peer_definition <- .cgv_server_definition
+                body(peer_definition) <- as.call(c(as.list(body(peer_definition)),list(quote(environment()))))
+                peer_env <- shiny::withReactiveDomain(peer,peer_definition(peer$input,peer$output,peer))
+                on.exit(peer$close(),add=TRUE)
+                shiny::withReactiveDomain(peer,shiny::isolate({
+                    peer$setInputs(homo_data_mode='preloaded',homo_preloaded_species='b',ortho_data_mode='upload',generate1=0,search_gene=0)
+                    deadline<-Sys.time()+10
+                    while(!peer_env$searchPreparationReadyHomo()&&Sys.time()<deadline){later::run_now(.05);peer$flushReact()}
+                    peer$setInputs(filter1='GENE2',generate1=1)
+                    science<-peer_env$fileDataHomologous();stopifnot(length(science)>0L)
+                    b<-peer_env$begin_search_run('homologous','other-session-B',duplicate_window_sec=0)
+                    before<-peer_env$get_search_run_mode_state('homologous')$mode_state
+                    restoring_session$setInputs(upload_work_session=data.frame(datapath=path),load_work_session_btn=1)
+                    stopifnot(peer_env$owns_search_run('homologous',b$id),identical(before,peer_env$get_search_run_mode_state('homologous')$mode_state),identical(science,peer_env$fileDataHomologous()))
+                    did_publish<-FALSE
+                    publish<-peer_env$search_operation_guard('homologous',b$id,function(){did_publish<<-TRUE;peer_env$fileDataHomologous(science)})
+                    publish();stopifnot(did_publish,identical(science,peer_env$fileDataHomologous()))
+                }))
+                cards(c('Review alpha','Review gamma'),'GENE2',c(120,180),'-')
+            }
+        } else if (startsWith(scenario, 'source-')) {
             if (scenario %in% c('source-upload', 'source-upload-genome', 'source-upload-delete')) {
                 upload_sources(c('a', 'b')); search(); cards()
                 a <- owned_source('uploaded-A')

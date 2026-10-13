@@ -67,7 +67,7 @@ ownership_harness <- function(observers = TRUE) {
         e[[name]] <- e$stateHelpersDomain[[name]]
     }
     e$search_request_is_current <- e$stateHelpersDomain$search_request_is_current
-    for (name in c('orthologous_search_source_key', 'begin_search_run',
+    for (name in c('work_view_guard', 'orthologous_search_source_key', 'begin_search_run',
         'capture_orthologous_cancellation_owner', 'request_search_run', 'take_search_event', 'search_operation_guard', 'search_future_promise', 'search_event_payload',
         'bind_search_batch_owner', 'schedule_search_dispatch', 'cancel_search_operation',
         'preparation_state_for_mode', 'invalidate_search_preparation', 'check_search_preparation_gate',
