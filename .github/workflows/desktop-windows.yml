@@ -94,7 +94,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Archive)) { throw "Private beta encryption failed." }
 
       - name: Upload private Windows beta artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: CGeV-Desktop-Windows-x64-beta-${{ github.run_number }}
           if-no-files-found: error
@@ -126,7 +126,7 @@ jobs:
 
       - name: Upload encrypted Microsoft Store fallback
         if: ${{ inputs.build_store_package }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: CGeV-Desktop-Windows-x64-Store-${{ github.run_number }}
           if-no-files-found: error
