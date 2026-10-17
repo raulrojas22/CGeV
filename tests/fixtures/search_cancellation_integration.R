@@ -182,21 +182,44 @@ main <- function() {
                 !owns_search_run('orthologous', a$id), identical(fileDataOrthologous(), before),
                 identical(get_search_run_mode_state('orthologous')$mode_state, state))
         }
-        if (scenario %in% c('restore-queued','restore-worker-error','restore-new-search','restore-repeat','restore-batch','restore-malformed','restore-read-error','restore-closed','restore-schema1')) {
+        if (scenario %in% c('restore-queued','restore-worker-error','restore-new-search','restore-repeat','restore-batch','restore-malformed','restore-read-error','restore-closed','restore-closed-error','restore-schema1')) {
             session$setInputs(ortho_preloaded_species = c('a', 'c')); session$elapse(600); wait_ready()
             search('GENE2'); cards(c('Review alpha','Review gamma'), 'GENE2', c(120,180), '-')
             saved <- build_work_session_snapshot(); path <- file.path(data_root, 'saved.rds')
             if (scenario == 'restore-schema1') saved$schema_version <- 1L
             saveRDS(saved, path)
             session$setInputs(ortho_preloaded_species = c('a', 'b')); session$elapse(600); wait_ready()
+            closed_case <- scenario %in% c('restore-closed','restore-closed-error')
+            worker_error <- scenario %in% c('restore-worker-error','restore-closed-error')
             workers <- list(); released <- file.path(data_root, 'release')
+            # Observe the real guards without replacing reactive values or relaxing
+            # Shiny's destroyed-session checks. Counters remain readable after close.
+            late <- new.env(parent = emptyenv())
+            late$attempted <- late$published <- late$cleaned <- late$settled <- 0L
+            if (closed_case) {
+                original_guard <- search_operation_guard
+                assign('search_operation_guard', function(mode, id, callback, cleanup = function() NULL, terminal = FALSE) {
+                    force(callback); force(cleanup)
+                    guarded <- original_guard(mode, id, function(...) {
+                        late$published <- late$published + 1L
+                        callback(...)
+                    }, cleanup = function() {
+                        late$cleaned <- late$cleaned + 1L
+                        cleanup()
+                    }, terminal = terminal)
+                    function(...) {
+                        late$attempted <- late$attempted + 1L
+                        guarded(...)
+                    }
+                }, envir = environment(original_guard))
+            }
             on.exit({writeLines('release', released); for(w in workers) w$wait(10000)}, add=TRUE)
             target <- environment(search_future_promise); original_future <- search_future_promise
             assign('search_future_promise', function(mode, id, expr, ..., envir=parent.frame()) {
                 expression <- substitute(expr); job <- get('job', envir=envir, inherits=TRUE)
                 index <- length(workers)+1L; spec <- file.path(data_root,paste0('job',index,'.rds'))
                 result <- file.path(data_root,paste0('result',index,'.rds'))
-                saveRDS(list(expr=expression,job=job,fail=scenario=='restore-worker-error'),spec)
+                saveRDS(list(expr=expression,job=job,fail=worker_error),spec)
                 workers[[index]] <<- processx::process$new(file.path(R.home('bin'),'Rscript'),
                     c(file.path(root, 'tests/fixtures/search_restoration_worker.R'),root,spec,released,result),
                     stdout=file.path(data_root,paste0('worker',index,'.log')),stderr='2>&1')
@@ -204,6 +227,7 @@ main <- function() {
                     poll <- function() {
                         if(file.exists(result)) {
                             x <- readRDS(result); stopifnot(x$pid != Sys.getpid())
+                            late$settled <- late$settled + 1L
                             if(inherits(x$value,'error')) reject(x$value) else resolve(x$value)
                         } else later::later(poll,.01)
                     }; poll()
@@ -234,10 +258,23 @@ main <- function() {
                 }
             }
             if (scenario == 'restore-read-error') writeLines('not an RDS file',path)
-            if (scenario == 'restore-closed') {
+            if (closed_case) {
+                # All scientific/status observations must precede session destruction.
+                closed_state <- list(status = searchStatusOrthologous(),
+                    ids = activePlotIdsOrthologous(), metadata = plotGeneMetaOrthologous(),
+                    data = fileDataOrthologous())
+                stopifnot(length(closed_state$ids) == 0L)
+                # Progressive lookup guards have no custom cleanup. This resource
+                # also exercises the real guard's unconditional cleanup contract.
+                late$resource_released <- FALSE
+                late_probe <- search_operation_guard('orthologous', a,
+                    function() fileDataOrthologous(closed_state$data),
+                    cleanup = function() late$resource_released <- TRUE)
                 session$close()
-                stopped <- tryCatch({apply_work_session_snapshot(saved);FALSE},error=function(e) TRUE)
-                stopifnot(stopped)
+                late_probe()
+                stopped <- tryCatch({apply_work_session_snapshot(saved);NULL},error=identity)
+                stopifnot(inherits(stopped, 'error'),
+                    identical(conditionMessage(stopped), 'Session closed before restoration.'))
             } else {
                 session$setInputs(upload_work_session=data.frame(datapath=path),load_work_session_btn=1)
                 if(scenario=='restore-repeat') session$setInputs(load_work_session_btn=2)
@@ -257,21 +294,35 @@ main <- function() {
                     acknowledge(); cards(c('Review alpha','Review gamma'),'GENE3',c(210,240),'+')
                 }
             new_owner <- if(scenario=='restore-new-search') get_search_run_mode_state('orthologous')$mode_state else NULL
-            before_status <- searchStatusOrthologous()
-            cat('BEFORE LATE SETTLEMENT cards=',length(activePlotIdsOrthologous()),' status=',get_search_run_mode_state('orthologous')$mode_state$status,'\n')
+            if (!closed_case) {
+                before_status <- searchStatusOrthologous()
+                cat('BEFORE LATE SETTLEMENT cards=',length(activePlotIdsOrthologous()),' status=',get_search_run_mode_state('orthologous')$mode_state$status,'\n')
+            }
             writeLines('release',released)
             for(w in workers) {w$wait(15000);stopifnot(!w$is_alive(),w$get_exit_status()==0L)}
             for(index in seq_along(workers)) {
                 result<-readRDS(file.path(data_root,paste0('result',index,'.rds')))
                 stopifnot(result$pid!=Sys.getpid())
-                if(scenario=='restore-worker-error') stopifnot(inherits(result$value,'error'),identical(conditionMessage(result$value),'controlled late worker failure'))
+                if(worker_error) stopifnot(inherits(result$value,'error'),identical(conditionMessage(result$value),'controlled late worker failure'))
                 else stopifnot(isTRUE(result$value$found),identical(range(as.numeric(result$value$data$V4),as.numeric(result$value$data$V5)),c(210,240)))
             }
-            for(i in 1:30) {later::run_now(.02);session$flushReact()}
-            cat('AFTER LATE SETTLEMENT cards=',length(activePlotIdsOrthologous()),
-                ' genes=',paste(vapply(plotGeneMetaOrthologous()[as.character(activePlotIdsOrthologous())],function(x)x$display_gene_name,character(1)),collapse=','),'\n')
+            for(i in 1:30) {later::run_now(.02);if (!closed_case) session$flushReact()}
+            if (closed_case) {
+                stopifnot(late$settled == length(workers), late$published == 0L,
+                    # Shiny can suppress rejection callbacks at its own promise
+                    # domain boundary. Success reaches both per-worker guards;
+                    # the explicit probe must reach our guard in either case.
+                    late$attempted >= 1L + if (worker_error) 0L else length(workers),
+                    late$cleaned == late$attempted, late$resource_released,
+                    session_deferred$pending_count() == 0L)
+                cat('CLOSED LATE SETTLEMENT workers=',late$settled,' callbacks=',late$attempted,
+                    ' publications=',late$published,' cleanups=',late$cleaned,'\n')
+            } else {
+                cat('AFTER LATE SETTLEMENT cards=',length(activePlotIdsOrthologous()),
+                    ' genes=',paste(vapply(plotGeneMetaOrthologous()[as.character(activePlotIdsOrthologous())],function(x)x$display_gene_name,character(1)),collapse=','),'\n')
+            }
             if (scenario %in% c('restore-malformed','restore-read-error')) cards(c('Review alpha','Review beta'), 'GENE3', c(210,240), '+')
-            else if (scenario != 'restore-closed') {
+            else if (!closed_case) {
                 if(scenario=='restore-new-search') {
                     cards(c('Review alpha','Review gamma'),'GENE3',c(210,240),'+')
                     stopifnot(identical(new_owner,get_search_run_mode_state('orthologous')$mode_state))

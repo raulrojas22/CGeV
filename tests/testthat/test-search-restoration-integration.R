@@ -2,7 +2,7 @@
 # avoid changing the application/global future plan. Each case is a fresh process.
 restoration_root <- normalizePath(if (file.exists('server.R')) '.' else '../..')
 for (scenario in c('restore-queued','restore-worker-error','restore-new-search','restore-repeat',
-    'restore-batch','restore-malformed','restore-read-error','restore-closed','restore-schema1',
+    'restore-batch','restore-malformed','restore-read-error','restore-closed','restore-closed-error','restore-schema1',
     'restore-pending-h','restore-pending-o','restore-external-queued','restore-view-callbacks','restore-isolation','restore-stale-source-ack','restore-external-settle','restore-external-error','restore-report')) {
     local({
         case <- scenario
