@@ -34,6 +34,22 @@ with tempfile.TemporaryDirectory() as directory:
     assert (dst / 'www/main.css').read_text() == 'new style'
     assert not (dst / 'obsolete-source.R').exists()
 
+    # Clean worktrees may reference a credentials file outside the checkout.
+    # Transfer its bytes with private permissions, never the local symlink.
+    credentials = Path(directory) / 'private-env'
+    credentials.write_text('EXAMPLE_KEY=fixture\n')
+    (src / '.env.local').symlink_to(credentials)
+    env_block = script[script.index('rsync -az --chmod'):script.index('nssh "chmod 600')]
+    flags = [word for word in shlex.split(env_block.replace('\\\n', ' '))
+             if word.startswith('--chmod=') or word == '--copy-links']
+    subprocess.run(['rsync', '-az', *flags, str(src / '.env.local'), str(dst / '.env.local')], check=True)
+    permission_line = next(line for line in script.splitlines() if line.startswith('nssh "chmod 600'))
+    subprocess.run(['bash', '-c', 'nssh() { bash -c "$1"; }; ' + permission_line],
+                   env=dict(os.environ, NAS_APP_DIR=str(dst)), check=True)
+    assert not (dst / '.env.local').is_symlink()
+    assert (dst / '.env.local').read_text() == credentials.read_text()
+    assert (dst / '.env.local').stat().st_mode & 0o777 == 0o600
+
     # Execute the real build block with a failed Docker build: the live env
     # must still reference the old image and its static snapshot.
     live_env = 'CGV_IMAGE=cgv:old\nAPP_ASSET_VERSION=old\n'
@@ -41,8 +57,8 @@ with tempfile.TemporaryDirectory() as directory:
     docker = Path(directory) / 'docker-probe'
     docker.write_text('''#!/bin/sh
 if [ "$1 $2" = "image inspect" ] && [ "$3" = "cgv:candidate" ]; then exit 1; fi
-if [ "$1 $2" = "compose build" ]; then
-  printf '%s' "$CGV_IMAGE" > "$NAS_APP_DIR/built-image"
+if [ "$1" = "build" ]; then
+  printf '%s\\n' "$@" > "$NAS_APP_DIR/build-args"
   exit 23
 fi
 exit 0
@@ -54,11 +70,13 @@ exit 0
     result = subprocess.run(['bash', '-c', 'set -e; nssh() { bash -c "$1"; };\n' + build],
                             env=env, capture_output=True, text=True)
     assert result.returncode == 23, result.stderr
-    assert (dst / 'built-image').read_text() == 'cgv:candidate'
+    argv = (dst / 'build-args').read_text().splitlines()
+    assert argv[argv.index('-t') + 1] == 'cgv:candidate'
+    assert argv[argv.index('--build-arg') + 1] == 'CGV_DEPS_IMAGE=cgv-deps:probe'
     assert (dst / '.env').read_text() == live_env
 
 # A failed media check or image build must happen before stopping live services.
-assert script.index('scripts/verify_guide_assets.py') < script.index(' compose build')
+assert script.index('scripts/verify_guide_assets.py') < script.index(' -t ')
 assert script.index('sha256sum -c deploy/guide-videos.sha256') < script.index(' stop cgv ')
 assert script.index('upsert_env CGV_IMAGE') > script.index(' stop cgv-shinyproxy ')
 assert script.index('upsert_env APP_ASSET_VERSION') > script.index(' stop cgv-shinyproxy ')

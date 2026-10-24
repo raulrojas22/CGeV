@@ -142,7 +142,7 @@ rsync -avz --progress --delete \
   --exclude='*.docx' --exclude='.env.local' \
   "$LOCAL_APP" \
   "${NAS_USER}@${NAS_HOST}:${NAS_APP_DIR}/"
-rsync -az --chmod=Fu=rw,Fgo= \
+rsync -az --chmod=Fu=rw,Fgo= --copy-links \
   -e "ssh -S $SSH_SOCK" \
   "${LOCAL_ENV_FILE}" \
   "${NAS_USER}@${NAS_HOST}:${NAS_APP_DIR}/.env.local"
@@ -241,7 +241,11 @@ nssh "
     echo '  Reutilizando ${CGV_DEPS_IMAGE}; no se instalarán paquetes R.'
   fi
   ${REMOTE_DOCKER} run --rm --entrypoint /usr/bin/google-chrome '${CGV_DEPS_IMAGE}' --version >/dev/null
-  CGV_IMAGE='${CGV_IMAGE}' CGV_DEPS_IMAGE='${CGV_DEPS_IMAGE}' ${REMOTE_DOCKER} compose build
+  # Pass immutable image identity as arguments: sudo may discard environment
+  # assignments, causing Compose to reuse the currently published .env tag.
+  ${REMOTE_DOCKER} build --pull=false --progress=plain \
+    --build-arg CGV_DEPS_IMAGE='${CGV_DEPS_IMAGE}' \
+    -t '${CGV_IMAGE}' -f Dockerfile .
   ${REMOTE_DOCKER} run --rm --entrypoint sh '${CGV_IMAGE}' -c 'cd /app && sha256sum -c deploy/guide-videos.sha256'
 "
 
