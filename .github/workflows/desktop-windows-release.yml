@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload unsigned installer for SignPath origin verification
         id: upload-unsigned-installer
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cgv-desktop-windows-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
           path: desktop/dist/${{ steps.release.outputs.installer }}
@@ -155,7 +155,7 @@ jobs:
           "$Hash  $($Installer.Name)" | Set-Content "desktop/dist/SHA256SUMS.txt" -Encoding ascii
 
       - name: Upload verified signed release payload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cgv-desktop-windows-signed-${{ steps.release.outputs.version }}
           if-no-files-found: error
